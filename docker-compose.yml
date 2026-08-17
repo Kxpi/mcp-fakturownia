@@ -1,0 +1,19 @@
+services:
+  mcp:
+    build: .
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      MCP_ACCESS_API_KEY: ${MCP_ACCESS_API_KEY:?MCP_ACCESS_API_KEY is required}
+    restart: unless-stopped
+    # ports:
+    #   - "3000:3000"  # uncomment for local debugging without tunnel
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    command: tunnel run
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:?CLOUDFLARE_TUNNEL_TOKEN is required}
+    depends_on:
+      - mcp
+    restart: unless-stopped

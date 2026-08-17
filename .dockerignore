@@ -1,0 +1,9 @@
+node_modules
+dist
+.env
+.git
+*.md
+tests
+.nvmrc
+.prettierrc
+vitest.config.ts
