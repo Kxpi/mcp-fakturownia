@@ -93,7 +93,7 @@ POST http://localhost:3000/mcp
 
 ## Production (Docker + Cloudflare Tunnel)
 
-Host the MCP server on a public domain with API-key auth. Fakturownia and CEIDG tokens stay on the server — clients only need the MCP URL and `MCP_ACCESS_API_KEY`.
+Host the MCP server on a public domain. Fakturownia and CEIDG tokens stay on the server — clients authenticate with OAuth (Claude) and/or a static Bearer key (Cursor, OpenClaw).
 
 ### 1. Configure secrets
 
@@ -107,7 +107,10 @@ Fill in `.env`:
 |----------|-------------|
 | `FAKTUROWNIA_BASE_URL`, `FAKTUROWNIA_API_TOKEN` | MCP server only |
 | `CEIDG_API_TOKEN` | MCP server only (optional) |
-| `MCP_ACCESS_API_KEY` | Server + every MCP client (`openssl rand -hex 32`) |
+| `MCP_PUBLIC_URL` | OAuth metadata + JWT audience (required for Claude OAuth) |
+| `OAUTH_JWT_SECRET` | Signs OAuth access tokens (`openssl rand -hex 32`) |
+| `OAUTH_CONSENT_PASSWORD` | Password on the OAuth consent page (single user) |
+| `MCP_ACCESS_API_KEY` | Optional static Bearer for Cursor/OpenClaw |
 | `CLOUDFLARE_TUNNEL_TOKEN` | cloudflared container only |
 
 ### 2. Cloudflare Tunnel
@@ -115,7 +118,8 @@ Fill in `.env`:
 1. [Cloudflare Zero Trust](https://one.dash.cloudflare.com/) → **Networks** → **Tunnels** → **Create a tunnel** → **Docker**
 2. Copy the tunnel token into `.env` as `CLOUDFLARE_TUNNEL_TOKEN`
 3. Add a **Public Hostname**: e.g. `mcp.yourdomain.com` → `http://mcp:3000` (service name must match compose)
-4. Save
+4. Set `MCP_PUBLIC_URL=https://mcp.yourdomain.com` (must match the public hostname, no trailing slash)
+5. Save
 
 ### 3. Deploy
 
@@ -125,9 +129,26 @@ docker compose up -d --build
 
 Public MCP endpoint: `https://mcp.yourdomain.com/mcp`
 
-Auth header on every request: `Authorization: Bearer <MCP_ACCESS_API_KEY>`
+### 4. Connect Claude (custom connector, OAuth)
 
-### 4. Connect remote clients
+1. Claude → **Customize → Connectors → Add custom connector**
+2. URL: `https://mcp.yourdomain.com/mcp` (must match `MCP_PUBLIC_URL/mcp` exactly)
+3. Claude discovers OAuth metadata, opens `/oauth/authorize` in your browser
+4. Enter `OAUTH_CONSENT_PASSWORD` → **Approve**
+5. Enable the connector in chat via **+ → Connectors**
+
+Verify discovery:
+
+```bash
+curl -i https://mcp.yourdomain.com/mcp
+curl https://mcp.yourdomain.com/.well-known/oauth-protected-resource
+```
+
+**Note:** OAuth clients and codes are in-memory. Container restart requires re-connecting in Claude.
+
+### 5. Connect other clients (static Bearer)
+
+Optional if `MCP_ACCESS_API_KEY` is set. Auth header: `Authorization: Bearer <MCP_ACCESS_API_KEY>`
 
 **Cursor** (or other HTTP-native MCP clients):
 

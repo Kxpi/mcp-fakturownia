@@ -4,7 +4,10 @@ services:
     env_file: .env
     environment:
       NODE_ENV: production
-      MCP_ACCESS_API_KEY: ${MCP_ACCESS_API_KEY:?MCP_ACCESS_API_KEY is required}
+      MCP_PUBLIC_URL: ${MCP_PUBLIC_URL:?MCP_PUBLIC_URL is required}
+      OAUTH_JWT_SECRET: ${OAUTH_JWT_SECRET:?OAUTH_JWT_SECRET is required}
+      OAUTH_CONSENT_PASSWORD: ${OAUTH_CONSENT_PASSWORD:?OAUTH_CONSENT_PASSWORD is required}
+      MCP_ACCESS_API_KEY: ${MCP_ACCESS_API_KEY:-}
     restart: unless-stopped
     # ports:
     #   - "3000:3000"  # uncomment for local debugging without tunnel
