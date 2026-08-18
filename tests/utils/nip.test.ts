@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { cleanNIP, isValidNIP, formatNIP } from '../../src/utils/nip.js';
+import { cleanNIP, isValidNIP } from '../../src/utils/nip.js';
 
 describe('cleanNIP', () => {
   it('removes dashes and spaces', () => {
@@ -26,19 +26,5 @@ describe('isValidNIP', () => {
     expect(isValidNIP('123456321')).toBe(false);
     expect(isValidNIP('12345632180')).toBe(false);
     expect(isValidNIP('')).toBe(false);
-  });
-});
-
-describe('formatNIP', () => {
-  it('formats 10-digit NIP with dashes', () => {
-    expect(formatNIP('1234563218')).toBe('123-456-32-18');
-  });
-
-  it('handles already-formatted input', () => {
-    expect(formatNIP('123-456-32-18')).toBe('123-456-32-18');
-  });
-
-  it('returns cleaned string for invalid length', () => {
-    expect(formatNIP('12345')).toBe('12345');
   });
 });

@@ -1,9 +1,8 @@
 import { request } from 'undici';
 import { logger } from '../logger.js';
-import { CeidgError, NetworkError } from '../utils/errors.js';
+import { FakturowniaError } from '../utils/errors.js';
 
 const CEIDG_BASE_URL = 'https://dane.biznes.gov.pl/api/ceidg/v3/firmy';
-const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
 export interface CeidgCompany {
   name: string;
@@ -15,14 +14,8 @@ export interface CeidgCompany {
   startDate?: string;
 }
 
-interface CacheEntry {
-  company: CeidgCompany;
-  expiresAt: number;
-}
-
 export class CeidgClient {
   private readonly apiToken: string | undefined;
-  private readonly cache = new Map<string, CacheEntry>();
 
   constructor(apiToken?: string) {
     this.apiToken = apiToken;
@@ -30,15 +23,9 @@ export class CeidgClient {
 
   async getCompanyByNip(nip: string): Promise<CeidgCompany> {
     if (!this.apiToken) {
-      throw new CeidgError(
+      throw new FakturowniaError(
         'CEIDG API token not configured. Set CEIDG_API_TOKEN environment variable to use create_client_by_nip.',
       );
-    }
-
-    const cached = this.cache.get(nip);
-    if (cached && cached.expiresAt > Date.now()) {
-      logger.debug({ nip }, 'CEIDG cache hit');
-      return cached.company;
     }
 
     const url = `${CEIDG_BASE_URL}?nip=${nip}`;
@@ -56,33 +43,33 @@ export class CeidgClient {
       const text = await body.text();
 
       if (statusCode === 301 || statusCode === 302 || statusCode === 303) {
-        throw new CeidgError(
+        throw new FakturowniaError(
           'CEIDG API is unavailable (redirect detected). The service may be under maintenance. Try again later.',
           statusCode,
         );
       }
 
       if (statusCode === 401 || statusCode === 403) {
-        throw new CeidgError('CEIDG authentication failed — check your CEIDG_API_TOKEN', statusCode);
+        throw new FakturowniaError('CEIDG authentication failed — check your CEIDG_API_TOKEN', statusCode);
       }
 
       if (statusCode === 404 || statusCode === 204) {
-        throw new CeidgError(`No company found in CEIDG for NIP ${nip}`, 404);
+        throw new FakturowniaError(`No company found in CEIDG for NIP ${nip}`, 404);
       }
 
       if (statusCode >= 500) {
-        throw new CeidgError(`CEIDG server error (${statusCode})`, statusCode);
+        throw new FakturowniaError(`CEIDG server error (${statusCode})`, statusCode);
       }
 
       if (statusCode !== 200) {
-        throw new CeidgError(`CEIDG unexpected response (${statusCode}): ${text}`, statusCode);
+        throw new FakturowniaError(`CEIDG unexpected response (${statusCode}): ${text}`, statusCode);
       }
 
       const data = JSON.parse(text);
       const firmy = data.firmy;
 
       if (!Array.isArray(firmy) || firmy.length === 0) {
-        throw new CeidgError(`No company found in CEIDG for NIP ${nip}`, 404);
+        throw new FakturowniaError(`No company found in CEIDG for NIP ${nip}`, 404);
       }
 
       const firma = firmy[0];
@@ -104,21 +91,21 @@ export class CeidgClient {
         startDate: firma.dataRozpoczecia,
       };
 
-      this.cache.set(nip, {
-        company,
-        expiresAt: Date.now() + CACHE_TTL_MS,
-      });
-
       logger.info({ nip, name: company.name, status: company.status }, 'CEIDG company fetched');
       return company;
     } catch (error) {
-      if (error instanceof CeidgError) throw error;
+      if (error instanceof FakturowniaError) throw error;
 
       if (error instanceof TypeError || (error instanceof Error && error.name === 'AbortError')) {
-        throw new NetworkError(`CEIDG request failed: ${(error as Error).message}`);
+        throw new FakturowniaError(
+          `CEIDG request failed: ${(error as Error).message}`,
+          undefined,
+          undefined,
+          true,
+        );
       }
 
-      throw new CeidgError(`Unexpected error fetching CEIDG data: ${error}`);
+      throw new FakturowniaError(`Unexpected error fetching CEIDG data: ${error}`);
     }
   }
 }

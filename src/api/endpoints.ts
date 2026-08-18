@@ -19,7 +19,6 @@ export const ENDPOINTS = {
   },
   products: {
     list: '/products.json',
-    get: (id: number) => `/products/${id}.json`,
     create: '/products.json',
     update: (id: number) => `/products/${id}.json`,
     delete: (id: number) => `/products/${id}.json`,

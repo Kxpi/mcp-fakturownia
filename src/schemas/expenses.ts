@@ -21,18 +21,30 @@ export const getExpensesInputSchema = z.object({
   date_from: z
     .string()
     .nullish()
-    .transform((val) => val || get30DaysAgo()),
+    .transform((val) => val || get30DaysAgo())
+    .describe('Start date YYYY-MM-DD (default: 30 days ago)'),
   date_to: z
     .string()
     .nullish()
-    .transform((val) => val || getToday()),
-  status: nullishString,
+    .transform((val) => val || getToday())
+    .describe('End date YYYY-MM-DD (default: today)'),
+  status: nullishString.describe('Filter by status: issued, paid, rejected, cancelled'),
   accounting_kind: z
     .enum(ACCOUNTING_KINDS)
     .nullish()
-    .transform((val) => val ?? undefined),
-  page: z.number().int().positive().nullish().transform((val) => val ?? 1),
-  per_page: z.number().int().positive().max(100).nullish().transform((val) => val ?? 25),
+    .transform((val) => val ?? undefined)
+    .describe(
+      'Filter by expense category: purchases, expenses, media, salary, incident, fuel0, fuel_expl75, fuel_expl100, fixed_assets, fixed_assets50, no_vat_deduction',
+    ),
+  page: z.number().int().positive().nullish().transform((val) => val ?? 1).describe('Page number (default: 1)'),
+  per_page: z
+    .number()
+    .int()
+    .positive()
+    .max(100)
+    .nullish()
+    .transform((val) => val ?? 25)
+    .describe('Results per page (1-100, default: 25)'),
 });
 
 export const getExpenseByIdInputSchema = z.object({
@@ -40,33 +52,44 @@ export const getExpenseByIdInputSchema = z.object({
 });
 
 export const createExpenseInputSchema = z.object({
-  vendor_name: z.string().min(1, 'Vendor name is required'),
-  vendor_nip: nullishString,
-  positions: z.array(invoicePositionSchema).min(1, 'At least one position is required'),
+  vendor_name: z
+    .string()
+    .min(1, 'Vendor name is required')
+    .describe('Vendor/supplier name (REQUIRED — the company that issued the invoice)'),
+  vendor_nip: nullishString.describe('Vendor NIP (tax ID)'),
+  positions: z
+    .array(invoicePositionSchema)
+    .min(1, 'At least one position is required')
+    .describe('Expense line items (REQUIRED, at least 1)'),
   accounting_kind: z
     .enum(ACCOUNTING_KINDS)
     .nullish()
-    .transform((val) => val ?? undefined),
+    .transform((val) => val ?? undefined)
+    .describe(
+      'Expense category: purchases, expenses, media, salary, incident, fuel0, fuel_expl75, fuel_expl100, fixed_assets, fixed_assets50, no_vat_deduction',
+    ),
   issue_date: z
     .string()
     .nullish()
-    .transform((val) => val || getToday()),
-  sell_date: dateString,
-  due_date: dateString,
-  delivery_date: dateString,
-  payment_method: nullishString,
+    .transform((val) => val || getToday())
+    .describe('Issue date YYYY-MM-DD (default: today)'),
+  sell_date: dateString.describe('Sell/service date YYYY-MM-DD (default: issue_date)'),
+  due_date: dateString.describe('Due date YYYY-MM-DD (default: issue_date + 14 days)'),
+  delivery_date: dateString.describe('Delivery/receipt date YYYY-MM-DD (data wpłynięcia)'),
+  payment_method: nullishString.describe('Payment method: transfer, cash, card, etc.'),
   currency: z
     .string()
     .nullish()
-    .transform((val) => val || 'PLN'),
-  notes: nullishString,
+    .transform((val) => val || 'PLN')
+    .describe('Currency code (default: PLN)'),
+  notes: nullishString.describe('Notes on the expense'),
 });
 
 export const deleteExpenseInputSchema = z.object({
   id: idField,
   confirm: z.boolean().refine((val) => val === true, {
     message: 'You must set confirm=true to delete an expense',
-  }),
+  }).describe('Must be true to confirm (REQUIRED)'),
 });
 
 export function resolveExpenseDates(input: {

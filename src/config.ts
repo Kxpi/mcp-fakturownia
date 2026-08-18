@@ -13,7 +13,6 @@ const configSchema = z.object({
   mcpAccessApiKey: z.string().min(16).optional(),
   logLevel: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
   requestTimeoutMs: z.coerce.number().positive().default(20000),
-  maxPageSize: z.coerce.number().positive().default(50),
 });
 
 export type Config = z.infer<typeof configSchema>;
@@ -26,7 +25,6 @@ function parseConfig(): Config {
     mcpAccessApiKey: process.env.MCP_ACCESS_API_KEY || undefined,
     logLevel: process.env.LOG_LEVEL || 'info',
     requestTimeoutMs: process.env.REQUEST_TIMEOUT_MS || 20000,
-    maxPageSize: process.env.MAX_PAGE_SIZE || 50,
   });
 
   if (!result.success) {

@@ -1,10 +1,10 @@
 # Fakturownia MCP Server
 
-An MCP (Model Context Protocol) server for the [Fakturownia](https://fakturownia.pl) Polish invoicing API. Enables LLMs to manage invoices, clients, products, and expenses through 26 tools.
+An MCP (Model Context Protocol) server for the [Fakturownia](https://fakturownia.pl) Polish invoicing API. Enables LLMs to manage invoices, clients, products, and expenses through 25 tools.
 
 ## Features
 
-- 26 MCP tools for invoices, clients, products, and expenses
+- 25 MCP tools for invoices, clients, products, and expenses
 - Two transport modes: **stdio** and **Streamable HTTP**
 - CEIDG integration for auto-creating clients from Polish business registry
 - Polish NIP validation with checksum

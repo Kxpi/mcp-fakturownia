@@ -1,6 +1,5 @@
 import type { FakturowniaApiClient } from '../api/fakturowniaClient.js';
 import type { CeidgClient } from '../api/ceidgClient.js';
-import { logger } from '../logger.js';
 import { cleanNIP } from '../utils/nip.js';
 import { getToday } from '../utils/dates.js';
 import { filterClientList, filterClientDetail } from '../utils/responseFilter.js';
@@ -13,147 +12,52 @@ import {
   updateClientInputSchema,
   deleteClientInputSchema,
 } from '../schemas/clients.js';
+import { defineTool } from './defineTool.js';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyRecord = Record<string, any>;
 
-// --- Tool Definitions ---
+export const getAllClientsToolDef = defineTool(
+  'get_all_clients',
+  'List all clients in Fakturownia. Returns basic info: id, name, NIP, address, email, phone. Default limit: 100. Use this to browse clients or find a client ID.',
+  getAllClientsInputSchema,
+);
 
-export const getAllClientsToolDef = {
-  name: 'get_all_clients',
-  description:
-    'List all clients in Fakturownia. Returns basic info: id, name, NIP, address, email, phone. Default limit: 100. Use this to browse clients or find a client ID.',
-  inputSchema: {
-    type: 'object' as const,
-    properties: {
-      limit: { type: 'number', description: 'Max number of clients to return (1-100, default: 100)' },
-      page: { type: 'number', description: 'Page number (default: 1)' },
-    },
-  },
-};
+export const getClientByNipToolDef = defineTool(
+  'get_client_by_nip',
+  'Find a single client by their NIP (Polish tax ID). Returns full client details if found. CRITICAL: NIP must be a valid 10-digit Polish tax number. Dashes are accepted and stripped automatically.',
+  getClientByNipInputSchema,
+);
 
-export const getClientByNipToolDef = {
-  name: 'get_client_by_nip',
-  description:
-    'Find a single client by their NIP (Polish tax ID). Returns full client details if found. CRITICAL: NIP must be a valid 10-digit Polish tax number. Dashes are accepted and stripped automatically.',
-  inputSchema: {
-    type: 'object' as const,
-    properties: {
-      nip: { type: 'string', description: 'Polish NIP number (10 digits, dashes accepted)' },
-    },
-    required: ['nip'],
-  },
-};
+export const getClientByNameToolDef = defineTool(
+  'get_client_by_name',
+  'Search clients by name (partial, case-insensitive match). Use this when you know part of the client name but not their NIP or ID.',
+  getClientByNameInputSchema,
+);
 
-export const getClientByNameToolDef = {
-  name: 'get_client_by_name',
-  description:
-    'Search clients by name (partial, case-insensitive match). Use this when you know part of the client name but not their NIP or ID.',
-  inputSchema: {
-    type: 'object' as const,
-    properties: {
-      name: { type: 'string', description: 'Name or partial name to search for' },
-      limit: { type: 'number', description: 'Max results (1-100, default: 100)' },
-    },
-    required: ['name'],
-  },
-};
+export const createClientToolDef = defineTool(
+  'create_client',
+  'Create a new client in Fakturownia with manually provided data. REQUIRES at least a name. Provide NIP, address, email, phone, bank details as available. For auto-importing from CEIDG business registry, use create_client_by_nip instead.',
+  createClientInputSchema,
+);
 
-export const createClientToolDef = {
-  name: 'create_client',
-  description:
-    'Create a new client in Fakturownia with manually provided data. REQUIRES at least a name. Provide NIP, address, email, phone, bank details as available. For auto-importing from CEIDG business registry, use create_client_by_nip instead.',
-  inputSchema: {
-    type: 'object' as const,
-    properties: {
-      name: { type: 'string', description: 'Client/company name (REQUIRED)' },
-      nip: { type: 'string', description: 'Polish NIP tax number' },
-      street: { type: 'string', description: 'Street address' },
-      city: { type: 'string', description: 'City' },
-      zip: { type: 'string', description: 'Postal code' },
-      country: { type: 'string', description: 'Country (default: PL)' },
-      email: { type: 'string', description: 'Email address' },
-      phone: { type: 'string', description: 'Phone number' },
-      bank: { type: 'string', description: 'Bank name' },
-      bank_account: { type: 'string', description: 'Bank account number' },
-      notes: { type: 'string', description: 'Internal notes' },
-      shortcut: { type: 'string', description: 'Short name/abbreviation' },
-    },
-    required: ['name'],
-  },
-};
+export const createClientByNipToolDef = defineTool(
+  'create_client_by_nip',
+  'Auto-create a client from the CEIDG Polish business registry using NIP only. Fetches company name, address from the registry. REQUIRES a valid NIP. CRITICAL: Only works for sole proprietorships (JDG). For LLCs and other types, use create_client manually. Inactive companies are rejected unless allow_inactive=true.',
+  createClientByNipInputSchema,
+);
 
-export const createClientByNipToolDef = {
-  name: 'create_client_by_nip',
-  description:
-    'Auto-create a client from the CEIDG Polish business registry using NIP only. Fetches company name, address from the registry. REQUIRES a valid NIP. CRITICAL: Only works for sole proprietorships (JDG). For LLCs and other types, use create_client manually. Inactive companies are rejected unless allow_inactive=true.',
-  inputSchema: {
-    type: 'object' as const,
-    properties: {
-      nip: { type: 'string', description: 'Polish NIP number (10 digits, REQUIRED)' },
-      allow_inactive: {
-        type: 'boolean',
-        description: 'Allow importing inactive/suspended companies (default: false)',
-      },
-      overrides: {
-        type: 'object',
-        description: 'Override auto-fetched fields (email, phone, bank, bank_account, notes)',
-        properties: {
-          email: { type: 'string' },
-          phone: { type: 'string' },
-          bank: { type: 'string' },
-          bank_account: { type: 'string' },
-          notes: { type: 'string' },
-        },
-      },
-    },
-    required: ['nip'],
-  },
-};
+export const updateClientToolDef = defineTool(
+  'update_client',
+  'Update an existing client in Fakturownia. REQUIRES the client ID (use get_all_clients or get_client_by_nip to find it). Only provided fields are updated.',
+  updateClientInputSchema,
+);
 
-export const updateClientToolDef = {
-  name: 'update_client',
-  description:
-    'Update an existing client in Fakturownia. REQUIRES the client ID (use get_all_clients or get_client_by_nip to find it). Only provided fields are updated.',
-  inputSchema: {
-    type: 'object' as const,
-    properties: {
-      id: { type: ['string', 'number'], description: 'Client ID (REQUIRED)' },
-      name: { type: 'string', description: 'Updated company name' },
-      nip: { type: 'string', description: 'Updated NIP' },
-      street: { type: 'string', description: 'Updated street address' },
-      city: { type: 'string', description: 'Updated city' },
-      zip: { type: 'string', description: 'Updated postal code' },
-      country: { type: 'string', description: 'Updated country' },
-      email: { type: 'string', description: 'Updated email' },
-      phone: { type: 'string', description: 'Updated phone' },
-      bank: { type: 'string', description: 'Updated bank name' },
-      bank_account: { type: 'string', description: 'Updated bank account' },
-      notes: { type: 'string', description: 'Updated notes' },
-      shortcut: { type: 'string', description: 'Updated short name' },
-    },
-    required: ['id'],
-  },
-};
-
-export const deleteClientToolDef = {
-  name: 'delete_client',
-  description:
-    'Permanently delete a client from Fakturownia. REQUIRES client ID and confirm=true. This action cannot be undone. Always confirm with the user before calling this.',
-  inputSchema: {
-    type: 'object' as const,
-    properties: {
-      id: { type: ['string', 'number'], description: 'Client ID to delete (REQUIRED)' },
-      confirm: {
-        type: 'boolean',
-        description: 'Must be true to confirm deletion (REQUIRED)',
-      },
-    },
-    required: ['id', 'confirm'],
-  },
-};
-
-// --- Handlers ---
+export const deleteClientToolDef = defineTool(
+  'delete_client',
+  'Permanently delete a client from Fakturownia. REQUIRES client ID and confirm=true. This action cannot be undone. Always confirm with the user before calling this.',
+  deleteClientInputSchema,
+);
 
 export async function handleGetAllClients(client: FakturowniaApiClient, args: unknown) {
   const input = getAllClientsInputSchema.parse(args);

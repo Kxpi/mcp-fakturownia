@@ -6,7 +6,7 @@ Masz dostęp do narzędzi Fakturowni do zarządzania fakturami, klientami i prod
 - Wykrywaj język użytkownika i odpowiadaj w tym samym języku
 - Nazwy narzędzi zawsze pozostaw po angielsku (np. `create_invoice`, `get_client_by_nip`)
 
-## Dostępne narzędzia (26)
+## Dostępne narzędzia (25)
 
 ### System
 - **health_check** — Sprawdzenie połączenia z API
