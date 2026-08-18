@@ -25,7 +25,7 @@ export const getAllClientsToolDef = defineTool(
 
 export const getClientByNipToolDef = defineTool(
   'get_client_by_nip',
-  'Find a single client by their NIP (Polish tax ID). Returns full client details if found. CRITICAL: NIP must be a valid 10-digit Polish tax number. Dashes are accepted and stripped automatically.',
+  'Find a single client by their NIP (Polish tax ID). Returns full client details if found. CRITICAL: NIP must be a valid 10-digit Polish tax number (string or number). Dashes are accepted and stripped automatically.',
   getClientByNipInputSchema,
 );
 
@@ -43,7 +43,7 @@ export const createClientToolDef = defineTool(
 
 export const createClientByNipToolDef = defineTool(
   'create_client_by_nip',
-  'Auto-create a client from the CEIDG Polish business registry using NIP only. Fetches company name, address from the registry. REQUIRES a valid NIP. CRITICAL: Only works for sole proprietorships (JDG). For LLCs and other types, use create_client manually. Inactive companies are rejected unless allow_inactive=true.',
+  'Auto-create a client from the CEIDG Polish business registry using NIP only. Fetches company name, address from the registry. REQUIRES a valid NIP (string or number). CRITICAL: Only works for sole proprietorships (JDG). For LLCs and other types, use create_client manually. Inactive companies are rejected unless allow_inactive=true.',
   createClientByNipInputSchema,
 );
 

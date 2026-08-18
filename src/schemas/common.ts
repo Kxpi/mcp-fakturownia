@@ -1,9 +1,28 @@
 import { z } from 'zod';
+import { cleanNIP, isValidNIP } from '../utils/nip.js';
 
 export const nullishString = z
   .string()
   .nullish()
   .transform((val) => val || undefined);
+
+/** LLMs often send NIP as a number — coerce before checksum validation. */
+const nipCoerced = z
+  .union([z.string(), z.number()])
+  .transform((val) => cleanNIP(String(val)));
+
+export const nipField = (description: string) =>
+  nipCoerced
+    .refine((val) => val.length > 0, 'NIP is required')
+    .refine((val) => isValidNIP(val), 'Invalid NIP checksum')
+    .describe(description);
+
+export const nullishNipField = z
+  .union([z.string(), z.number()])
+  .nullish()
+  .transform((val) => (val == null || val === '' ? undefined : cleanNIP(String(val))))
+  .refine((val) => val === undefined || isValidNIP(val), 'Invalid NIP checksum')
+  .describe('Polish NIP tax number (string or number)');
 
 export const dateString = z
   .string()

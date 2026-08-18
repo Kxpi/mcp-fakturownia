@@ -1,6 +1,5 @@
 import { z } from 'zod';
-import { nullishString, idField } from './common.js';
-import { cleanNIP, isValidNIP } from '../utils/nip.js';
+import { nullishString, idField, nipField, nullishNipField } from './common.js';
 
 export const getAllClientsInputSchema = z.object({
   limit: z
@@ -15,12 +14,7 @@ export const getAllClientsInputSchema = z.object({
 });
 
 export const getClientByNipInputSchema = z.object({
-  nip: z
-    .string()
-    .min(1, 'NIP is required')
-    .describe('Polish NIP number (10 digits, dashes accepted)')
-    .transform((val) => cleanNIP(val))
-    .refine((val) => isValidNIP(val), 'Invalid NIP checksum'),
+  nip: nipField('Polish NIP number (10 digits, string or number, dashes accepted)'),
 });
 
 export const getClientByNameInputSchema = z.object({
@@ -37,7 +31,7 @@ export const getClientByNameInputSchema = z.object({
 
 export const createClientInputSchema = z.object({
   name: z.string().min(1, 'Client name is required').describe('Client/company name (REQUIRED)'),
-  nip: nullishString.describe('Polish NIP tax number'),
+  nip: nullishNipField,
   street: nullishString.describe('Street address'),
   city: nullishString.describe('City'),
   zip: nullishString.describe('Postal code'),
@@ -51,12 +45,7 @@ export const createClientInputSchema = z.object({
 });
 
 export const createClientByNipInputSchema = z.object({
-  nip: z
-    .string()
-    .min(1, 'NIP is required')
-    .describe('Polish NIP number (10 digits, REQUIRED)')
-    .transform((val) => cleanNIP(val))
-    .refine((val) => isValidNIP(val), 'Invalid NIP checksum'),
+  nip: nipField('Polish NIP number (10 digits, string or number, REQUIRED)'),
   allow_inactive: z
     .boolean()
     .nullish()
@@ -78,7 +67,7 @@ export const createClientByNipInputSchema = z.object({
 export const updateClientInputSchema = z.object({
   id: idField,
   name: nullishString.describe('Updated company name'),
-  nip: nullishString.describe('Updated NIP'),
+  nip: nullishNipField,
   street: nullishString.describe('Updated street address'),
   city: nullishString.describe('Updated city'),
   zip: nullishString.describe('Updated postal code'),

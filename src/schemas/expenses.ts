@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { nullishString, idField, dateString } from './common.js';
+import { nullishString, idField, dateString, nullishNipField } from './common.js';
 import { invoicePositionSchema } from './invoices.js';
 import { getToday, get30DaysAgo, addDays } from '../utils/dates.js';
 
@@ -56,7 +56,7 @@ export const createExpenseInputSchema = z.object({
     .string()
     .min(1, 'Vendor name is required')
     .describe('Vendor/supplier name (REQUIRED — the company that issued the invoice)'),
-  vendor_nip: nullishString.describe('Vendor NIP (tax ID)'),
+  vendor_nip: nullishNipField,
   positions: z
     .array(invoicePositionSchema)
     .min(1, 'At least one position is required')
