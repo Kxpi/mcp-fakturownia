@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { ALL_TOOL_DEFS } from '../../src/server.js';
+import { ALL_TOOL_DEFS } from '../../src/tools/registry.js';
 
 describe('tool JSON schemas', () => {
   it('generates object schemas for every tool', () => {

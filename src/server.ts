@@ -157,30 +157,4 @@ export function createMcpServer(): Server {
   return server;
 }
 
-export const ALL_TOOL_DEFS = [
-  healthCheckToolDef,
-  getAllClientsToolDef,
-  getClientByNipToolDef,
-  getClientByNameToolDef,
-  createClientToolDef,
-  createClientByNipToolDef,
-  updateClientToolDef,
-  deleteClientToolDef,
-  getInvoicesToolDef,
-  getInvoiceByIdToolDef,
-  createInvoiceToolDef,
-  updateInvoiceToolDef,
-  deleteInvoiceToolDef,
-  cancelInvoiceToolDef,
-  sendInvoiceToKsefToolDef,
-  markInvoiceAsPaidToolDef,
-  getClientInvoicesSummaryToolDef,
-  listProductsToolDef,
-  createProductToolDef,
-  updateProductToolDef,
-  deleteProductToolDef,
-  getExpensesToolDef,
-  getExpenseByIdToolDef,
-  createExpenseToolDef,
-  deleteExpenseToolDef,
-];
+export { ALL_TOOL_DEFS } from './tools/registry.js';
