@@ -105,6 +105,7 @@ Host the MCP server on a public domain. Fakturownia and CEIDG tokens stay on the
 - Built only to unlock Claude web, desktop, and mobile custom connectors against the same deployed server
 - Hardcoded Claude redirect URIs; not for arbitrary OAuth clients
 - Registered clients persist on disk (`/data` volume); authorization codes (mid-login tickets) do not
+- Refresh tokens (90-day default) allow silent access-token renewal without re-entering the consent password; Anthropic's bridge may still occasionally require re-consent ([#247](https://github.com/anthropics/claude-ai-mcp/issues/247))
 
 If you don't need Claude web/mobile, skip OAuth entirely and use `MCP_ACCESS_API_KEY`.
 
@@ -123,7 +124,8 @@ Fill in `.env`:
 | `MCP_PUBLIC_URL` | OAuth metadata + JWT audience (required for Claude OAuth) |
 | `OAUTH_JWT_SECRET` | Signs OAuth access tokens (`openssl rand -hex 32`) |
 | `OAUTH_CONSENT_PASSWORD` | Password on the OAuth consent page (single user) |
-| `OAUTH_DATA_DIR` | Directory for persisted OAuth clients (default `/data`; mounted as Docker volume) |
+| `OAUTH_REFRESH_TOKEN_TTL_SECONDS` | Refresh token lifetime (default 90 days) |
+| `OAUTH_DATA_DIR` | Directory for persisted OAuth state (default `/data`; mounted as Docker volume) |
 | `MCP_ACCESS_API_KEY` | Static Bearer — **recommended** for Cursor, OpenClaw, Desktop via mcp-remote |
 | `CLOUDFLARE_TUNNEL_TOKEN` | cloudflared container only |
 
@@ -160,7 +162,7 @@ curl -i https://mcp.yourdomain.com/mcp
 curl https://mcp.yourdomain.com/.well-known/oauth-protected-resource
 ```
 
-**Note:** Registered OAuth clients persist on the `/data` volume across restarts. Short-lived authorization codes (mid-login) are not persisted — if a restart happens during login, approve again.
+**Note:** Registered OAuth clients and refresh tokens persist on the `/data` volume across restarts. Short-lived authorization codes (mid-login) are not persisted — if a restart happens during login, approve again. Access tokens expire after ~24h; refresh tokens renew them silently (consent password only needed on initial connect or after refresh expiry).
 
 ### 5. Connect other clients (static Bearer — recommended)
 

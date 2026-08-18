@@ -3,7 +3,7 @@ import type { Config } from '../config.js';
 import { readBody, redirect, safeEqual, sendHtml, sendJson } from '../http-utils.js';
 import { renderConsentForm } from './consent.js';
 import { verifyPkceS256 } from './pkce.js';
-import { consumeAuthCode, createAuthCode, getClient, registerClient } from './store.js';
+import { consumeAuthCode, createAuthCode, getClient, issueRefreshToken, registerClient, rotateRefreshToken } from './store.js';
 import { issueAccessToken } from './tokens.js';
 
 const ALLOWED_REDIRECT_URIS = [
@@ -63,7 +63,8 @@ async function handleAuthorizationServerMetadata(
     token_endpoint: `${config.mcpPublicUrl}/oauth/token`,
     registration_endpoint: `${config.mcpPublicUrl}/oauth/register`,
     response_types_supported: ['code'],
-    grant_types_supported: ['authorization_code'],
+    grant_types_supported: ['authorization_code', 'refresh_token'],
+    scopes_supported: ['offline_access'],
     code_challenge_methods_supported: ['S256'],
     token_endpoint_auth_methods_supported: ['none'],
   });
@@ -104,6 +105,8 @@ async function handleRegister(
       client_id_issued_at: client.createdAt,
       redirect_uris: client.redirectUris,
       client_name: client.clientName,
+      grant_types: ['authorization_code', 'refresh_token'],
+      response_types: ['code'],
       token_endpoint_auth_method: 'none',
     });
   } catch {
@@ -220,18 +223,30 @@ async function handleAuthorizePost(
   redirect(res, redirectUrl.toString());
 }
 
-async function handleToken(
+async function sendTokenResponse(
   config: Config,
-  req: http.IncomingMessage,
   res: http.ServerResponse,
+  clientId: string,
+  existingRefreshToken?: { token: string },
 ) {
-  const body = formFields(await readBody(req));
+  const accessToken = await issueAccessToken(config);
+  const refreshToken =
+    existingRefreshToken ??
+    issueRefreshToken(clientId, config.oauthRefreshTokenTtlSeconds * 1000);
 
-  if (body.grant_type !== 'authorization_code') {
-    oauthError(res, 400, 'unsupported_grant_type', 'Only authorization_code is supported');
-    return;
-  }
+  sendJson(res, 200, {
+    access_token: accessToken,
+    refresh_token: refreshToken.token,
+    token_type: 'bearer',
+    expires_in: config.oauthAccessTokenTtlSeconds,
+  });
+}
 
+async function handleAuthorizationCodeGrant(
+  config: Config,
+  res: http.ServerResponse,
+  body: Record<string, string>,
+) {
   const { code, redirect_uri: redirectUri, client_id: clientId, code_verifier: codeVerifier } =
     body;
 
@@ -271,13 +286,58 @@ async function handleToken(
     return;
   }
 
-  const accessToken = await issueAccessToken(config);
+  await sendTokenResponse(config, res, clientId);
+}
 
-  sendJson(res, 200, {
-    access_token: accessToken,
-    token_type: 'Bearer',
-    expires_in: config.oauthAccessTokenTtlSeconds,
-  });
+async function handleRefreshTokenGrant(
+  config: Config,
+  res: http.ServerResponse,
+  body: Record<string, string>,
+) {
+  const refreshTokenValue = body.refresh_token;
+  const clientId = body.client_id;
+
+  if (!refreshTokenValue || !clientId) {
+    oauthError(res, 400, 'invalid_request', 'Missing refresh token parameters');
+    return;
+  }
+
+  const client = getClient(clientId);
+  if (!client) {
+    oauthError(res, 400, 'invalid_client', 'Unknown client');
+    return;
+  }
+
+  const rotated = rotateRefreshToken(
+    refreshTokenValue,
+    config.oauthRefreshTokenTtlSeconds * 1000,
+  );
+  if (!rotated || rotated.clientId !== clientId) {
+    oauthError(res, 400, 'invalid_grant', 'Refresh token is invalid or expired');
+    return;
+  }
+
+  await sendTokenResponse(config, res, clientId, rotated);
+}
+
+async function handleToken(
+  config: Config,
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+) {
+  const body = formFields(await readBody(req));
+
+  if (body.grant_type === 'authorization_code') {
+    await handleAuthorizationCodeGrant(config, res, body);
+    return;
+  }
+
+  if (body.grant_type === 'refresh_token') {
+    await handleRefreshTokenGrant(config, res, body);
+    return;
+  }
+
+  oauthError(res, 400, 'unsupported_grant_type', 'Unsupported grant_type');
 }
 
 const oauthRoutes: Array<{ method: string; path: string; handler: OAuthRouteHandler }> = [
