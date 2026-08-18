@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { nullishString, idField } from './common.js';
+import { nullishString, idField, nullishNipField } from './common.js';
 import { getToday, get30DaysAgo, addDays } from '../utils/dates.js';
 import { calculateGrossFromNet } from '../utils/money.js';
 
@@ -84,14 +84,14 @@ export const createInvoiceInputSchema = z.object({
     .describe('Currency code (default: PLN)'),
   notes: nullishString.describe('Notes on the invoice'),
   buyer_name: nullishString.describe('Override buyer name (otherwise taken from client)'),
-  buyer_nip: nullishString.describe('Override buyer NIP'),
+  buyer_nip: nullishNipField,
   draft: z.boolean().nullish().transform((val) => val ?? false).describe('Create as draft (default: false)'),
 });
 
 export const updateInvoiceInputSchema = z.object({
   id: idField,
   buyer_name: nullishString.describe('Updated buyer name'),
-  buyer_nip: nullishString.describe('Updated buyer NIP'),
+  buyer_nip: nullishNipField,
   issue_date: nullishString.describe('Updated issue date YYYY-MM-DD'),
   sell_date: nullishString.describe('Updated sell date YYYY-MM-DD'),
   due_date: nullishString.describe('Updated due date YYYY-MM-DD'),
