@@ -1,59 +1,20 @@
 #!/usr/bin/env node
 
 import http from 'node:http';
-import { randomUUID, timingSafeEqual } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
+import { isMcpAuthorized, sendMcpUnauthorized } from './auth.js';
 import { config } from './config.js';
 import { logger } from './logger.js';
+
+process.env.OAUTH_DATA_DIR ??= config.oauthDataDir;
+import { readBody, sendJson, setCorsHeaders } from './http-utils.js';
+import { tryHandleOAuthRoute } from './oauth/handlers.js';
 import { createMcpServer } from './server.js';
 
 const PORT = parseInt(process.env.PORT || '3000', 10);
 const transports: Record<string, StreamableHTTPServerTransport> = {};
-
-function setCorsHeaders(res: http.ServerResponse) {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
-  res.setHeader(
-    'Access-Control-Allow-Headers',
-    'Content-Type, Authorization, Mcp-Session-Id, Last-Event-Id, Mcp-Protocol-Version',
-  );
-  res.setHeader(
-    'Access-Control-Expose-Headers',
-    'Mcp-Session-Id, Mcp-Protocol-Version',
-  );
-}
-
-function sendJson(res: http.ServerResponse, statusCode: number, data: unknown) {
-  res.writeHead(statusCode, { 'Content-Type': 'application/json' });
-  res.end(JSON.stringify(data));
-}
-
-async function readBody(req: http.IncomingMessage): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const chunks: Buffer[] = [];
-    req.on('data', (chunk: Buffer) => chunks.push(chunk));
-    req.on('end', () => resolve(Buffer.concat(chunks).toString('utf-8')));
-    req.on('error', reject);
-  });
-}
-
-function safeEqual(a: string, b: string): boolean {
-  const bufA = Buffer.from(a);
-  const bufB = Buffer.from(b);
-  if (bufA.length !== bufB.length) {
-    timingSafeEqual(bufA, bufA);
-    return false;
-  }
-  return timingSafeEqual(bufA, bufB);
-}
-
-function isAuthorized(req: http.IncomingMessage): boolean {
-  if (!config.mcpAccessApiKey) return true;
-  const auth = req.headers.authorization;
-  if (!auth?.startsWith('Bearer ')) return false;
-  return safeEqual(auth.slice(7), config.mcpAccessApiKey);
-}
 
 const server = http.createServer(async (req, res) => {
   setCorsHeaders(res);
@@ -65,6 +26,10 @@ const server = http.createServer(async (req, res) => {
   }
 
   const url = new URL(req.url || '/', `http://localhost:${PORT}`);
+  const oauthHandled = await tryHandleOAuthRoute(config, req, res, url.pathname);
+  if (oauthHandled) {
+    return;
+  }
 
   if (url.pathname === '/' && req.method === 'GET') {
     sendJson(res, 200, {
@@ -72,6 +37,7 @@ const server = http.createServer(async (req, res) => {
       version: '1.0.0',
       transport: 'streamable-http',
       activeSessions: Object.keys(transports).length,
+      oauthEnabled: config.oauthEnabled,
     });
     return;
   }
@@ -80,13 +46,14 @@ const server = http.createServer(async (req, res) => {
     sendJson(res, 200, {
       status: 'ok',
       activeSessions: Object.keys(transports).length,
+      oauthEnabled: config.oauthEnabled,
     });
     return;
   }
 
   if (url.pathname === '/mcp') {
-    if (!isAuthorized(req)) {
-      sendJson(res, 401, { error: 'Unauthorized' });
+    if (!(await isMcpAuthorized(req))) {
+      sendMcpUnauthorized(res);
       return;
     }
 
@@ -184,6 +151,8 @@ server.listen(PORT, () => {
       baseUrl: config.fakturowniaBaseUrl,
       ceidgEnabled: !!config.ceidgApiToken,
       mcpAuthEnabled: !!config.mcpAccessApiKey,
+      oauthEnabled: config.oauthEnabled,
+      mcpResourceUri: config.mcpResourceUri,
     },
     `Fakturownia MCP HTTP server listening on port ${PORT}`,
   );

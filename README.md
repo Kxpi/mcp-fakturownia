@@ -93,7 +93,21 @@ POST http://localhost:3000/mcp
 
 ## Production (Docker + Cloudflare Tunnel)
 
-Host the MCP server on a public domain with API-key auth. Fakturownia and CEIDG tokens stay on the server — clients only need the MCP URL and `MCP_ACCESS_API_KEY`.
+Host the MCP server on a public domain. Fakturownia and CEIDG tokens stay on the server — clients authenticate at the MCP layer (see below).
+
+### Authentication options
+
+**Recommended for most setups:** static Bearer token (`MCP_ACCESS_API_KEY`). Simpler, fewer moving parts. Works well for Cursor, OpenClaw, Claude Desktop (via `mcp-remote`), and local dev.
+
+**OAuth (Claude web / mobile only):** Claude custom connectors require OAuth discovery — they won't accept a pasted API key. The OAuth implementation here is a **minimal single-user shim**, not a general-purpose identity provider:
+
+- One shared consent password; all tokens map to a single owner
+- Built only to unlock Claude web, desktop, and mobile custom connectors against the same deployed server
+- Hardcoded Claude redirect URIs; not for arbitrary OAuth clients
+- Registered clients persist on disk (`/data` volume); authorization codes (mid-login tickets) do not
+- Refresh tokens (90-day default) allow silent access-token renewal without re-entering the consent password; Anthropic's bridge may still occasionally require re-consent ([#247](https://github.com/anthropics/claude-ai-mcp/issues/247))
+
+If you don't need Claude web/mobile, skip OAuth entirely and use `MCP_ACCESS_API_KEY`.
 
 ### 1. Configure secrets
 
@@ -107,7 +121,12 @@ Fill in `.env`:
 |----------|-------------|
 | `FAKTUROWNIA_BASE_URL`, `FAKTUROWNIA_API_TOKEN` | MCP server only |
 | `CEIDG_API_TOKEN` | MCP server only (optional) |
-| `MCP_ACCESS_API_KEY` | Server + every MCP client (`openssl rand -hex 32`) |
+| `MCP_PUBLIC_URL` | OAuth metadata + JWT audience (required for Claude OAuth) |
+| `OAUTH_JWT_SECRET` | Signs OAuth access tokens (`openssl rand -hex 32`) |
+| `OAUTH_CONSENT_PASSWORD` | Password on the OAuth consent page (single user) |
+| `OAUTH_REFRESH_TOKEN_TTL_SECONDS` | Refresh token lifetime (default 90 days) |
+| `OAUTH_DATA_DIR` | Directory for persisted OAuth state (default `/data`; mounted as Docker volume) |
+| `MCP_ACCESS_API_KEY` | Static Bearer — **recommended** for Cursor, OpenClaw, Desktop via mcp-remote |
 | `CLOUDFLARE_TUNNEL_TOKEN` | cloudflared container only |
 
 ### 2. Cloudflare Tunnel
@@ -115,7 +134,8 @@ Fill in `.env`:
 1. [Cloudflare Zero Trust](https://one.dash.cloudflare.com/) → **Networks** → **Tunnels** → **Create a tunnel** → **Docker**
 2. Copy the tunnel token into `.env` as `CLOUDFLARE_TUNNEL_TOKEN`
 3. Add a **Public Hostname**: e.g. `mcp.yourdomain.com` → `http://mcp:3000` (service name must match compose)
-4. Save
+4. Set `MCP_PUBLIC_URL=https://mcp.yourdomain.com` (must match the public hostname, no trailing slash)
+5. Save
 
 ### 3. Deploy
 
@@ -125,9 +145,28 @@ docker compose up -d --build
 
 Public MCP endpoint: `https://mcp.yourdomain.com/mcp`
 
-Auth header on every request: `Authorization: Bearer <MCP_ACCESS_API_KEY>`
+### 4. Connect Claude web/mobile (OAuth — optional)
 
-### 4. Connect remote clients
+Only needed for Claude **custom connectors** in web or mobile. Skip if you use Claude Desktop with `mcp-remote` + static Bearer (section 5).
+
+1. Claude → **Customize → Connectors → Add custom connector**
+2. URL: `https://mcp.yourdomain.com/mcp` (must match `MCP_PUBLIC_URL/mcp` exactly)
+3. Claude discovers OAuth metadata, opens `/oauth/authorize` in your browser
+4. Enter `OAUTH_CONSENT_PASSWORD` → **Approve**
+5. Enable the connector in chat via **+ → Connectors**
+
+Verify discovery:
+
+```bash
+curl -i https://mcp.yourdomain.com/mcp
+curl https://mcp.yourdomain.com/.well-known/oauth-protected-resource
+```
+
+**Note:** Registered OAuth clients and refresh tokens persist on the `/data` volume across restarts. Short-lived authorization codes (mid-login) are not persisted — if a restart happens during login, approve again. Access tokens expire after ~24h; refresh tokens renew them silently (consent password only needed on initial connect or after refresh expiry).
+
+### 5. Connect other clients (static Bearer — recommended)
+
+Optional if `MCP_ACCESS_API_KEY` is set — this is the **preferred** auth method when your client supports it. Auth header: `Authorization: Bearer <MCP_ACCESS_API_KEY>`
 
 **Cursor** (or other HTTP-native MCP clients):
 
