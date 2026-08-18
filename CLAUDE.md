@@ -46,22 +46,23 @@ src/
 ├── logger.ts             # Pino logger → stderr
 ├── api/
 │   ├── fakturowniaClient.ts   # Fakturownia HTTP client with retries
-│   ├── ceidgClient.ts         # CEIDG API v3 client with cache
+│   ├── ceidgClient.ts         # CEIDG API v3 client
 │   └── endpoints.ts           # API endpoint path definitions
 ├── tools/
+│   ├── defineTool.ts   # Zod → MCP JSON Schema helper
 │   ├── health.ts         # health_check tool
 │   ├── clients.ts        # 7 client tools + CEIDG integration
-│   ├── invoices.ts       # 8 invoice tools
-│   ├── products.ts       # 3 product tools
+│   ├── invoices.ts       # 9 invoice tools
+│   ├── products.ts       # 4 product tools
 │   └── expenses.ts       # 4 expense tools (faktury kosztowe)
 ├── schemas/
-│   ├── common.ts         # Shared Zod schemas (pagination, dates)
+│   ├── common.ts         # Shared Zod schemas (dates, ids)
 │   ├── clients.ts        # Client input/output schemas
 │   ├── invoices.ts       # Invoice input/output schemas
 │   ├── products.ts       # Product input/output schemas
 │   └── expenses.ts       # Expense input/output schemas
 └── utils/
-    ├── errors.ts         # Custom error hierarchy
+    ├── errors.ts         # FakturowniaError with retryable flag
     ├── dates.ts          # Date formatting helpers
     ├── money.ts          # VAT/money calculations
     ├── nip.ts            # Polish NIP validation
@@ -71,10 +72,11 @@ src/
 ### Key Design Decisions
 
 1. **Tool definitions live alongside handlers** — each `tools/*.ts` file exports both the MCP tool definition object and the handler function
-2. **Server.ts uses a giant switch/case** for tool dispatch — works but consider a registry pattern in v2
-3. **Response filtering** — Fakturownia API returns 50+ fields per object; `responseFilter.ts` picks only essential fields to save LLM tokens
-4. **Zod schemas handle LLM null values** — LLMs frequently send `null` instead of omitting fields; all optional schemas use `.nullish().transform()` pattern
-5. **Single API client instance** created in `server.ts`, passed to all tool handlers
+2. **Zod is the single source of truth** — `defineTool.ts` generates MCP JSON Schema from Zod via `z.toJSONSchema()`; runtime validation uses `schema.parse(args)`
+3. **Server.ts uses a handler registry map** — tools registered as `{ def, handle }` pairs, looked up by name in `CallTool`
+4. **Response filtering** — Fakturownia API returns 50+ fields per object; `responseFilter.ts` picks only essential fields to save LLM tokens
+5. **Zod schemas handle LLM null values** — LLMs frequently send `null` instead of omitting fields; all optional schemas use `.nullish().transform()` pattern
+6. **Single API client instance** created in `server.ts`, passed to all tool handlers
 
 ---
 
@@ -118,7 +120,6 @@ CEIDG_API_TOKEN=                  # Required for create_client_by_nip tool (CEID
 LOG_LEVEL=info                    # debug | info | warn | error
 REQUEST_TIMEOUT_MS=20000          # HTTP request timeout
 MAX_LOG_LINES=200                 # Unused in current impl
-MAX_PAGE_SIZE=50                  # Maximum pagination page size
 ```
 
 Config validation with Zod — exits process with clear error messages if required vars are missing.
@@ -143,7 +144,7 @@ Config validation with Zod — exits process with clear error messages if requir
 | `update_client` | Update client fields |
 | `delete_client` | Delete client (requires confirm=true) |
 
-### Invoices (8)
+### Invoices (9)
 | Tool | Description |
 |------|-------------|
 | `get_invoices` | List with filters (default: last 30 days) |
@@ -152,6 +153,7 @@ Config validation with Zod — exits process with clear error messages if requir
 | `update_invoice` | Update dates, status, notes, buyer info |
 | `delete_invoice` | Permanent delete (requires confirm=true) |
 | `cancel_invoice` | Safer alternative to delete |
+| `send_invoice_to_ksef` | Send existing invoice to KSeF (requires confirm=true) |
 | `mark_invoice_as_paid` | Record payment via `/banking/payments.json` (KSeF-safe) |
 | `get_client_invoices_summary` | Aggregated stats (totals, by status) |
 
@@ -330,7 +332,6 @@ Token obtained from: https://www.biznes.gov.pl/pl/e-uslugi/00_9999_00
 - CEIDG only contains **sole proprietorships** (JDG) — not LLCs or other company types
 - v3 does NOT return email or phone in the response
 - Status values: `AKTYWNY`, `Wykreślony`, `Zawieszony`
-- Implement 24-hour in-memory cache to avoid repeated lookups
 - Inactive companies should be rejected by default (with `allow_inactive` override)
 
 ### Address Building
@@ -392,8 +393,8 @@ The Fakturownia API's `tax_no` query parameter does exact matching but may not w
 ### 9. Response filtering saves significant tokens
 Fakturownia responses include 50+ fields per object. Without filtering, a list of 20 invoices could consume thousands of tokens. The `responseFilter.ts` picks only 8-12 essential fields.
 
-### 10. Error hierarchy matters
-Having specific error classes (AuthenticationError, RateLimitError, etc.) allows the retry logic to make smart decisions — only retry on 429/5xx/network errors, never on 401/400.
+### 10. Retryable errors
+`FakturowniaError` carries a `retryable` flag. The API client retries only when `retryable: true` (429, 5xx, network/abort); 401/400/404/422 are not retried.
 
 ### 11. Retry with exponential backoff
 The API client retries on rate limits (429), server errors (5xx), and network errors. Config: max 3 retries, 1s initial delay, 2x backoff, 10s max delay.
@@ -440,11 +441,11 @@ Tool descriptions in MCP are read by LLMs to decide which tool to use. Make them
 2. Create `src/api/fakturowniaClient.ts`:
    - Constructor reads config (baseUrl, apiToken, timeout)
    - `makeRequest<T>()` private method with retry logic
-   - Error mapping (401→AuthenticationError, 429→RateLimitError, etc.)
+   - Error mapping with `FakturowniaError` and `retryable` flag
    - Exponential backoff (1s, 2s, 4s... max 10s, 3 retries)
 3. Implement client methods: `healthCheck()`, `listClients()`, `getClient()`, `createClient()`, `updateClient()`, `deleteClient()`
 4. Implement invoice methods: `listInvoices()`, `getInvoice()`, `createInvoice()`, `updateInvoice()`, `deleteInvoice()`, `cancelInvoice()`, `downloadInvoicePdf()`, `sendInvoice()`
-5. Implement product methods: `listProducts()`, `getProduct()`, `createProduct()`, `updateProduct()`, `deleteProduct()`
+5. Implement product methods: `listProducts()`, `createProduct()`, `updateProduct()`, `deleteProduct()`
 
 **Key details**:
 - API token goes in query params, NOT headers
@@ -461,9 +462,9 @@ Tool descriptions in MCP are read by LLMs to decide which tool to use. Make them
 **Goal**: All helper utilities with tests.
 
 **Tasks**:
-1. Create `src/utils/nip.ts` — `isValidNIP()`, `formatNIP()`, `cleanNIP()` with checksum validation
-2. Create `src/utils/money.ts` — `roundMoney()`, `calculateGrossFromNet()`, `calculateNetFromGross()`, `calculateVatAmount()`, `formatMoney()`
-3. Create `src/utils/dates.ts` — `formatDate()`, `getToday()`, `get30DaysAgo()`, `getYearStart()`, `addDays()`, `parseDate()`
+1. Create `src/utils/nip.ts` — `isValidNIP()`, `cleanNIP()` with checksum validation
+2. Create `src/utils/money.ts` — `roundMoney()`, `parseMoney()`, `calculateGrossFromNet()`
+3. Create `src/utils/dates.ts` — `formatDate()`, `getToday()`, `get30DaysAgo()`, `addDays()`
 4. Create `src/utils/responseFilter.ts` — field picking for clients, invoices (list/detail/created), positions, products
 5. Write tests: `tests/utils/nip.test.ts`, `tests/utils/money.test.ts`
 
@@ -601,7 +602,7 @@ z.string().nullish().transform((val) => val || undefined)
 **Tasks**:
 1. Create `src/server.ts`:
    - `createMcpServer()` — instantiate Server, register all 25 tools via `ListToolsRequestSchema` and `CallToolRequestSchema`
-   - Tool dispatch via switch/case (or build a registry Map for cleaner code)
+   - Tool dispatch via handler registry map (`byName.get(name)`)
    - Error handling: catch FakturowniaError → serialize, other errors → generic error response
    - All tool responses: `{ content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] }`
    - Error responses include `isError: true`

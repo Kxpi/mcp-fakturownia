@@ -1,0 +1,12 @@
+import { describe, it, expect } from 'vitest';
+import { ALL_TOOL_DEFS } from '../../src/server.js';
+
+describe('tool JSON schemas', () => {
+  it('generates object schemas for every tool', () => {
+    expect(ALL_TOOL_DEFS).toHaveLength(25);
+
+    for (const tool of ALL_TOOL_DEFS) {
+      expect(tool.inputSchema).toMatchObject({ type: 'object' });
+    }
+  });
+});

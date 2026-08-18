@@ -6,79 +6,34 @@ import {
   updateProductInputSchema,
   deleteProductInputSchema,
 } from '../schemas/products.js';
+import { defineTool } from './defineTool.js';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyRecord = Record<string, any>;
 
-// --- Tool Definitions ---
+export const listProductsToolDef = defineTool(
+  'list_products',
+  'List products from the Fakturownia catalog. Returns: id, name, code, prices, VAT rate, unit. Default limit: 100.',
+  listProductsInputSchema,
+);
 
-export const listProductsToolDef = {
-  name: 'list_products',
-  description:
-    'List products from the Fakturownia catalog. Returns: id, name, code, prices, VAT rate, unit. Default limit: 100.',
-  inputSchema: {
-    type: 'object' as const,
-    properties: {
-      limit: { type: 'number', description: 'Max products to return (1-100, default: 100)' },
-      page: { type: 'number', description: 'Page number (default: 1)' },
-    },
-  },
-};
+export const createProductToolDef = defineTool(
+  'create_product',
+  'Add a new product to the Fakturownia catalog. REQUIRES a name. Optionally set price_net or price_gross, VAT rate (default 23%), unit, code, description.',
+  createProductInputSchema,
+);
 
-export const createProductToolDef = {
-  name: 'create_product',
-  description:
-    'Add a new product to the Fakturownia catalog. REQUIRES a name. Optionally set price_net or price_gross, VAT rate (default 23%), unit, code, description.',
-  inputSchema: {
-    type: 'object' as const,
-    properties: {
-      name: { type: 'string', description: 'Product name (REQUIRED)' },
-      code: { type: 'string', description: 'Product code/SKU' },
-      price_net: { type: 'number', description: 'Net price' },
-      price_gross: { type: 'number', description: 'Gross price' },
-      vat_rate: { type: 'number', description: 'VAT rate % (default: 23)' },
-      unit: { type: 'string', description: 'Unit (e.g., "szt.", "godz.")' },
-      description: { type: 'string', description: 'Product description' },
-    },
-    required: ['name'],
-  },
-};
+export const updateProductToolDef = defineTool(
+  'update_product',
+  'Update an existing product in the Fakturownia catalog. REQUIRES product ID. Only provided fields are updated. Note: net price is recalculated from gross price and VAT rate by the API.',
+  updateProductInputSchema,
+);
 
-export const updateProductToolDef = {
-  name: 'update_product',
-  description:
-    'Update an existing product in the Fakturownia catalog. REQUIRES product ID. Only provided fields are updated. Note: net price is recalculated from gross price and VAT rate by the API.',
-  inputSchema: {
-    type: 'object' as const,
-    properties: {
-      id: { type: ['string', 'number'], description: 'Product ID (REQUIRED)' },
-      name: { type: 'string', description: 'Updated product name' },
-      code: { type: 'string', description: 'Updated product code/SKU' },
-      price_net: { type: 'number', description: 'Updated net price' },
-      price_gross: { type: 'number', description: 'Updated gross price' },
-      vat_rate: { type: 'number', description: 'Updated VAT rate %' },
-      unit: { type: 'string', description: 'Updated unit (e.g., "szt.", "godz.")' },
-      description: { type: 'string', description: 'Updated description' },
-    },
-    required: ['id'],
-  },
-};
-
-export const deleteProductToolDef = {
-  name: 'delete_product',
-  description:
-    'Delete a product from the Fakturownia catalog. REQUIRES product ID and confirm=true.',
-  inputSchema: {
-    type: 'object' as const,
-    properties: {
-      id: { type: ['string', 'number'], description: 'Product ID (REQUIRED)' },
-      confirm: { type: 'boolean', description: 'Must be true to confirm (REQUIRED)' },
-    },
-    required: ['id', 'confirm'],
-  },
-};
-
-// --- Handlers ---
+export const deleteProductToolDef = defineTool(
+  'delete_product',
+  'Delete a product from the Fakturownia catalog. REQUIRES product ID and confirm=true.',
+  deleteProductInputSchema,
+);
 
 export async function handleListProducts(client: FakturowniaApiClient, args: unknown) {
   const input = listProductsInputSchema.parse(args);

@@ -1,16 +1,7 @@
 import { request } from 'undici';
 import { config } from '../config.js';
 import { logger } from '../logger.js';
-import {
-  AuthenticationError,
-  FakturowniaError,
-  isRetryableError,
-  NetworkError,
-  NotFoundError,
-  RateLimitError,
-  ServerError,
-  ValidationError,
-} from '../utils/errors.js';
+import { FakturowniaError, isRetryableError } from '../utils/errors.js';
 import { buildQueryParams, ENDPOINTS } from './endpoints.js';
 
 const MAX_RETRIES = 3;
@@ -67,13 +58,13 @@ export class FakturowniaApiClient {
         const text = await responseBody.text();
 
         if (statusCode === 401 || statusCode === 403) {
-          throw new AuthenticationError();
+          throw new FakturowniaError('Authentication failed — check your API token', statusCode);
         }
         if (statusCode === 404) {
-          throw new NotFoundError();
+          throw new FakturowniaError('Resource not found', statusCode);
         }
         if (statusCode === 429) {
-          throw new RateLimitError();
+          throw new FakturowniaError('Rate limit exceeded — try again later', statusCode, undefined, true);
         }
         if (statusCode === 422 || statusCode === 400) {
           let details: unknown;
@@ -82,10 +73,10 @@ export class FakturowniaApiClient {
           } catch {
             details = text;
           }
-          throw new ValidationError(`API validation error (${statusCode})`, details);
+          throw new FakturowniaError(`API validation error (${statusCode})`, statusCode, details);
         }
         if (statusCode >= 500) {
-          throw new ServerError(`Server error (${statusCode})`, statusCode);
+          throw new FakturowniaError(`Server error (${statusCode})`, statusCode, undefined, true);
         }
 
         if (!text || text.trim() === '') {
@@ -104,8 +95,11 @@ export class FakturowniaApiClient {
           error instanceof TypeError ||
           (error instanceof Error && error.name === 'AbortError')
         ) {
-          lastError = new NetworkError(
+          lastError = new FakturowniaError(
             `Request failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+            undefined,
+            undefined,
+            true,
           );
           if (attempt === MAX_RETRIES) throw lastError;
           continue;
@@ -123,20 +117,14 @@ export class FakturowniaApiClient {
     throw lastError;
   }
 
-  // Health
   async healthCheck(): Promise<unknown> {
     return this.makeRequest('GET', ENDPOINTS.invoices.list, {
       query: { per_page: 1, page: 1 },
     });
   }
 
-  // Clients
   async listClients(query?: QueryParams): Promise<unknown[]> {
-    const result = await this.makeRequest<unknown>(
-      'GET',
-      ENDPOINTS.clients.list,
-      { query },
-    );
+    const result = await this.makeRequest<unknown>('GET', ENDPOINTS.clients.list, { query });
     return Array.isArray(result) ? result : [];
   }
 
@@ -160,13 +148,8 @@ export class FakturowniaApiClient {
     return this.makeRequest('DELETE', ENDPOINTS.clients.delete(id));
   }
 
-  // Invoices
   async listInvoices(query?: QueryParams): Promise<unknown[]> {
-    const result = await this.makeRequest<unknown>(
-      'GET',
-      ENDPOINTS.invoices.list,
-      { query },
-    );
+    const result = await this.makeRequest<unknown>('GET', ENDPOINTS.invoices.list, { query });
     return Array.isArray(result) ? result : [];
   }
 
@@ -206,18 +189,9 @@ export class FakturowniaApiClient {
     });
   }
 
-  // Products
   async listProducts(query?: QueryParams): Promise<unknown[]> {
-    const result = await this.makeRequest<unknown>(
-      'GET',
-      ENDPOINTS.products.list,
-      { query },
-    );
+    const result = await this.makeRequest<unknown>('GET', ENDPOINTS.products.list, { query });
     return Array.isArray(result) ? result : [];
-  }
-
-  async getProduct(id: number): Promise<unknown> {
-    return this.makeRequest('GET', ENDPOINTS.products.get(id));
   }
 
   async createProduct(data: Record<string, unknown>): Promise<unknown> {

@@ -12,18 +12,8 @@ export function get30DaysAgo(): string {
   return formatDate(d);
 }
 
-export function getYearStart(): string {
-  const d = new Date();
-  return `${d.getFullYear()}-01-01`;
-}
-
 export function addDays(dateStr: string, days: number): string {
   const d = new Date(dateStr);
   d.setDate(d.getDate() + days);
   return formatDate(d);
-}
-
-export function parseDate(dateStr: string): Date | null {
-  const d = new Date(dateStr);
-  return isNaN(d.getTime()) ? null : d;
 }

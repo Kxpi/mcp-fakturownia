@@ -13,9 +13,3 @@ export function isValidNIP(nip: string): boolean {
 
   return checksum % 11 === digits[9];
 }
-
-export function formatNIP(nip: string): string {
-  const cleaned = cleanNIP(nip);
-  if (cleaned.length !== 10) return cleaned;
-  return `${cleaned.slice(0, 3)}-${cleaned.slice(3, 6)}-${cleaned.slice(6, 8)}-${cleaned.slice(8)}`;
-}

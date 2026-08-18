@@ -8,7 +8,7 @@ You have access to Fakturownia invoice management tools. Use them to help users 
 - Detect the user's language and respond in the same language
 - Keep all tool names in English (e.g., `create_invoice`, `get_client_by_nip`)
 
-## Available Tools (26)
+## Available Tools (25)
 
 ### System
 - **health_check** — Verify API connectivity

@@ -67,7 +67,97 @@ import {
   handleDeleteExpense,
 } from './tools/expenses.js';
 
-const ALL_TOOLS = [
+type ToolHandler = (args: unknown) => Promise<unknown>;
+
+export function createMcpServer(): Server {
+  const apiClient = new FakturowniaApiClient();
+  const ceidgClient = new CeidgClient(config.ceidgApiToken);
+
+  const tools: Array<{ def: { name: string; description: string; inputSchema: unknown }; handle: ToolHandler }> = [
+    { def: healthCheckToolDef, handle: () => handleHealthCheck(apiClient) },
+    { def: getAllClientsToolDef, handle: (args) => handleGetAllClients(apiClient, args) },
+    { def: getClientByNipToolDef, handle: (args) => handleGetClientByNip(apiClient, args) },
+    { def: getClientByNameToolDef, handle: (args) => handleGetClientByName(apiClient, args) },
+    { def: createClientToolDef, handle: (args) => handleCreateClient(apiClient, args) },
+    {
+      def: createClientByNipToolDef,
+      handle: (args) => handleCreateClientByNip(apiClient, ceidgClient, args),
+    },
+    { def: updateClientToolDef, handle: (args) => handleUpdateClient(apiClient, args) },
+    { def: deleteClientToolDef, handle: (args) => handleDeleteClient(apiClient, args) },
+    { def: getInvoicesToolDef, handle: (args) => handleGetInvoices(apiClient, args) },
+    { def: getInvoiceByIdToolDef, handle: (args) => handleGetInvoiceById(apiClient, args) },
+    { def: createInvoiceToolDef, handle: (args) => handleCreateInvoice(apiClient, args) },
+    { def: updateInvoiceToolDef, handle: (args) => handleUpdateInvoice(apiClient, args) },
+    { def: deleteInvoiceToolDef, handle: (args) => handleDeleteInvoice(apiClient, args) },
+    { def: cancelInvoiceToolDef, handle: (args) => handleCancelInvoice(apiClient, args) },
+    { def: sendInvoiceToKsefToolDef, handle: (args) => handleSendInvoiceToKsef(apiClient, args) },
+    { def: markInvoiceAsPaidToolDef, handle: (args) => handleMarkInvoiceAsPaid(apiClient, args) },
+    {
+      def: getClientInvoicesSummaryToolDef,
+      handle: (args) => handleGetClientInvoicesSummary(apiClient, args),
+    },
+    { def: listProductsToolDef, handle: (args) => handleListProducts(apiClient, args) },
+    { def: createProductToolDef, handle: (args) => handleCreateProduct(apiClient, args) },
+    { def: updateProductToolDef, handle: (args) => handleUpdateProduct(apiClient, args) },
+    { def: deleteProductToolDef, handle: (args) => handleDeleteProduct(apiClient, args) },
+    { def: getExpensesToolDef, handle: (args) => handleGetExpenses(apiClient, args) },
+    { def: getExpenseByIdToolDef, handle: (args) => handleGetExpenseById(apiClient, args) },
+    { def: createExpenseToolDef, handle: (args) => handleCreateExpense(apiClient, args) },
+    { def: deleteExpenseToolDef, handle: (args) => handleDeleteExpense(apiClient, args) },
+  ];
+
+  const byName = new Map(tools.map((tool) => [tool.def.name, tool]));
+
+  const server = new Server(
+    { name: 'fakturownia-mcp', version: '1.0.0' },
+    { capabilities: { tools: {} } },
+  );
+
+  server.setRequestHandler(ListToolsRequestSchema, async () => ({
+    tools: tools.map((tool) => tool.def),
+  }));
+
+  server.setRequestHandler(CallToolRequestSchema, async (request) => {
+    const { name, arguments: args } = request.params;
+    logger.info({ tool: name }, 'Tool called');
+
+    const tool = byName.get(name);
+    if (!tool) {
+      return {
+        content: [{ type: 'text', text: JSON.stringify({ error: `Unknown tool: ${name}` }) }],
+        isError: true,
+      };
+    }
+
+    try {
+      const result = await tool.handle(args);
+      return {
+        content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
+      };
+    } catch (error) {
+      logger.error({ tool: name, error }, 'Tool execution failed');
+
+      if (error instanceof FakturowniaError) {
+        return {
+          content: [{ type: 'text', text: JSON.stringify(error.toJSON(), null, 2) }],
+          isError: true,
+        };
+      }
+
+      const message =
+        error instanceof Error ? error.message : 'An unexpected error occurred';
+      return {
+        content: [{ type: 'text', text: JSON.stringify({ error: message }) }],
+        isError: true,
+      };
+    }
+  });
+
+  return server;
+}
+
+export const ALL_TOOL_DEFS = [
   healthCheckToolDef,
   getAllClientsToolDef,
   getClientByNipToolDef,
@@ -94,131 +184,3 @@ const ALL_TOOLS = [
   createExpenseToolDef,
   deleteExpenseToolDef,
 ];
-
-export function createMcpServer(): Server {
-  const apiClient = new FakturowniaApiClient();
-  const ceidgClient = new CeidgClient(config.ceidgApiToken);
-
-  const server = new Server(
-    { name: 'fakturownia-mcp', version: '1.0.0' },
-    { capabilities: { tools: {} } },
-  );
-
-  server.setRequestHandler(ListToolsRequestSchema, async () => ({
-    tools: ALL_TOOLS,
-  }));
-
-  server.setRequestHandler(CallToolRequestSchema, async (request) => {
-    const { name, arguments: args } = request.params;
-    logger.info({ tool: name }, 'Tool called');
-
-    try {
-      let result: unknown;
-
-      switch (name) {
-        case 'health_check':
-          result = await handleHealthCheck(apiClient);
-          break;
-        case 'get_all_clients':
-          result = await handleGetAllClients(apiClient, args);
-          break;
-        case 'get_client_by_nip':
-          result = await handleGetClientByNip(apiClient, args);
-          break;
-        case 'get_client_by_name':
-          result = await handleGetClientByName(apiClient, args);
-          break;
-        case 'create_client':
-          result = await handleCreateClient(apiClient, args);
-          break;
-        case 'create_client_by_nip':
-          result = await handleCreateClientByNip(apiClient, ceidgClient, args);
-          break;
-        case 'update_client':
-          result = await handleUpdateClient(apiClient, args);
-          break;
-        case 'delete_client':
-          result = await handleDeleteClient(apiClient, args);
-          break;
-        case 'get_invoices':
-          result = await handleGetInvoices(apiClient, args);
-          break;
-        case 'get_invoice_by_id':
-          result = await handleGetInvoiceById(apiClient, args);
-          break;
-        case 'create_invoice':
-          result = await handleCreateInvoice(apiClient, args);
-          break;
-        case 'update_invoice':
-          result = await handleUpdateInvoice(apiClient, args);
-          break;
-        case 'delete_invoice':
-          result = await handleDeleteInvoice(apiClient, args);
-          break;
-        case 'cancel_invoice':
-          result = await handleCancelInvoice(apiClient, args);
-          break;
-        case 'send_invoice_to_ksef':
-          result = await handleSendInvoiceToKsef(apiClient, args);
-          break;
-        case 'mark_invoice_as_paid':
-          result = await handleMarkInvoiceAsPaid(apiClient, args);
-          break;
-        case 'get_client_invoices_summary':
-          result = await handleGetClientInvoicesSummary(apiClient, args);
-          break;
-        case 'list_products':
-          result = await handleListProducts(apiClient, args);
-          break;
-        case 'create_product':
-          result = await handleCreateProduct(apiClient, args);
-          break;
-        case 'update_product':
-          result = await handleUpdateProduct(apiClient, args);
-          break;
-        case 'delete_product':
-          result = await handleDeleteProduct(apiClient, args);
-          break;
-        case 'get_expenses':
-          result = await handleGetExpenses(apiClient, args);
-          break;
-        case 'get_expense_by_id':
-          result = await handleGetExpenseById(apiClient, args);
-          break;
-        case 'create_expense':
-          result = await handleCreateExpense(apiClient, args);
-          break;
-        case 'delete_expense':
-          result = await handleDeleteExpense(apiClient, args);
-          break;
-        default:
-          return {
-            content: [{ type: 'text', text: JSON.stringify({ error: `Unknown tool: ${name}` }) }],
-            isError: true,
-          };
-      }
-
-      return {
-        content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
-      };
-    } catch (error) {
-      logger.error({ tool: name, error }, 'Tool execution failed');
-
-      if (error instanceof FakturowniaError) {
-        return {
-          content: [{ type: 'text', text: JSON.stringify(error.toJSON(), null, 2) }],
-          isError: true,
-        };
-      }
-
-      const message =
-        error instanceof Error ? error.message : 'An unexpected error occurred';
-      return {
-        content: [{ type: 'text', text: JSON.stringify({ error: message }) }],
-        isError: true,
-      };
-    }
-  });
-
-  return server;
-}

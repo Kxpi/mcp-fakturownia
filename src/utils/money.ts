@@ -12,15 +12,3 @@ export function parseMoney(value: unknown): number {
 export function calculateGrossFromNet(net: number, vatRate: number): number {
   return roundMoney(net * (1 + vatRate / 100));
 }
-
-export function calculateNetFromGross(gross: number, vatRate: number): number {
-  return roundMoney(gross / (1 + vatRate / 100));
-}
-
-export function calculateVatAmount(net: number, vatRate: number): number {
-  return roundMoney(net * (vatRate / 100));
-}
-
-export function formatMoney(amount: number): string {
-  return amount.toFixed(2);
-}
