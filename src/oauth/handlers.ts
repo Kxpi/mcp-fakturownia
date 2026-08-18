@@ -1,27 +1,21 @@
 import http from 'node:http';
 import type { Config } from '../config.js';
-import {
-  parseFormBody,
-  readBody,
-  redirect,
-  safeEqual,
-  sendHtml,
-  sendJson,
-} from '../http-utils.js';
+import { readBody, redirect, safeEqual, sendHtml, sendJson } from '../http-utils.js';
 import { renderConsentForm } from './consent.js';
-import { ALLOWED_REDIRECT_URIS } from './constants.js';
-import {
-  getAuthorizationServerMetadata,
-  getProtectedResourceMetadata,
-} from './metadata.js';
 import { verifyPkceS256 } from './pkce.js';
-import {
-  consumeAuthCode,
-  createAuthCode,
-  getClient,
-  registerClient,
-} from './store.js';
+import { consumeAuthCode, createAuthCode, getClient, registerClient } from './store.js';
 import { issueAccessToken } from './tokens.js';
+
+const ALLOWED_REDIRECT_URIS = [
+  'https://claude.ai/api/mcp/auth_callback',
+  'https://claude.com/api/mcp/auth_callback',
+] as const;
+
+type OAuthRouteHandler = (
+  config: Config,
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+) => Promise<void>;
 
 function isAllowedRedirectUri(uri: string): boolean {
   return (ALLOWED_REDIRECT_URIS as readonly string[]).includes(uri);
@@ -34,21 +28,52 @@ function oauthError(res: http.ServerResponse, statusCode: number, error: string,
   });
 }
 
-export async function handleProtectedResourceMetadata(
-  config: Config,
-  res: http.ServerResponse,
-) {
-  sendJson(res, 200, getProtectedResourceMetadata(config));
+function formFields(body: string): Record<string, string> {
+  return Object.fromEntries(new URLSearchParams(body));
 }
 
-export async function handleAuthorizationServerMetadata(
+async function handleProtectedResourceMetadata(
   config: Config,
+  _req: http.IncomingMessage,
   res: http.ServerResponse,
 ) {
-  sendJson(res, 200, getAuthorizationServerMetadata(config));
+  if (!config.mcpPublicUrl || !config.mcpResourceUri) {
+    throw new Error('OAuth is not configured');
+  }
+
+  sendJson(res, 200, {
+    resource: config.mcpResourceUri,
+    authorization_servers: [config.mcpPublicUrl],
+    bearer_methods_supported: ['header'],
+  });
 }
 
-export async function handleRegister(req: http.IncomingMessage, res: http.ServerResponse) {
+async function handleAuthorizationServerMetadata(
+  config: Config,
+  _req: http.IncomingMessage,
+  res: http.ServerResponse,
+) {
+  if (!config.mcpPublicUrl) {
+    throw new Error('OAuth is not configured');
+  }
+
+  sendJson(res, 200, {
+    issuer: config.mcpPublicUrl,
+    authorization_endpoint: `${config.mcpPublicUrl}/oauth/authorize`,
+    token_endpoint: `${config.mcpPublicUrl}/oauth/token`,
+    registration_endpoint: `${config.mcpPublicUrl}/oauth/register`,
+    response_types_supported: ['code'],
+    grant_types_supported: ['authorization_code'],
+    code_challenge_methods_supported: ['S256'],
+    token_endpoint_auth_methods_supported: ['none'],
+  });
+}
+
+async function handleRegister(
+  _config: Config,
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+) {
   try {
     const bodyText = await readBody(req);
     const body = JSON.parse(bodyText) as {
@@ -133,8 +158,8 @@ function validateAuthorizeParams(params: URLSearchParams): {
   return { ok: true, fields };
 }
 
-export async function handleAuthorizeGet(
-  config: Config,
+async function handleAuthorizeGet(
+  _config: Config,
   req: http.IncomingMessage,
   res: http.ServerResponse,
 ) {
@@ -149,13 +174,12 @@ export async function handleAuthorizeGet(
   sendHtml(res, 200, renderConsentForm(validation.fields));
 }
 
-export async function handleAuthorizePost(
+async function handleAuthorizePost(
   config: Config,
   req: http.IncomingMessage,
   res: http.ServerResponse,
 ) {
-  const bodyText = await readBody(req);
-  const body = parseFormBody(bodyText);
+  const body = formFields(await readBody(req));
 
   const password = body.password ?? '';
   if (!config.oauthConsentPassword || !safeEqual(password, config.oauthConsentPassword)) {
@@ -183,8 +207,6 @@ export async function handleAuthorizePost(
       redirectUri: validation.fields.redirect_uri,
       codeChallenge: validation.fields.code_challenge,
       codeChallengeMethod: validation.fields.code_challenge_method,
-      resource: validation.fields.resource,
-      state: validation.fields.state,
     },
     config.oauthCodeTtlSeconds * 1000,
   );
@@ -198,13 +220,12 @@ export async function handleAuthorizePost(
   redirect(res, redirectUrl.toString());
 }
 
-export async function handleToken(
+async function handleToken(
   config: Config,
   req: http.IncomingMessage,
   res: http.ServerResponse,
 ) {
-  const bodyText = await readBody(req);
-  const body = parseFormBody(bodyText);
+  const body = formFields(await readBody(req));
 
   if (body.grant_type !== 'authorization_code') {
     oauthError(res, 400, 'unsupported_grant_type', 'Only authorization_code is supported');
@@ -259,39 +280,38 @@ export async function handleToken(
   });
 }
 
-export function tryHandleOAuthRoute(
+const oauthRoutes: Array<{ method: string; path: string; handler: OAuthRouteHandler }> = [
+  {
+    method: 'GET',
+    path: '/.well-known/oauth-protected-resource',
+    handler: handleProtectedResourceMetadata,
+  },
+  {
+    method: 'GET',
+    path: '/.well-known/oauth-authorization-server',
+    handler: handleAuthorizationServerMetadata,
+  },
+  { method: 'POST', path: '/oauth/register', handler: handleRegister },
+  { method: 'GET', path: '/oauth/authorize', handler: handleAuthorizeGet },
+  { method: 'POST', path: '/oauth/authorize', handler: handleAuthorizePost },
+  { method: 'POST', path: '/oauth/token', handler: handleToken },
+];
+
+export async function tryHandleOAuthRoute(
   config: Config,
   req: http.IncomingMessage,
   res: http.ServerResponse,
   pathname: string,
-): boolean | Promise<boolean> {
+): Promise<boolean> {
   if (!config.oauthEnabled) {
     return false;
   }
 
-  if (pathname === '/.well-known/oauth-protected-resource' && req.method === 'GET') {
-    return handleProtectedResourceMetadata(config, res).then(() => true);
+  const route = oauthRoutes.find((entry) => entry.method === req.method && entry.path === pathname);
+  if (!route) {
+    return false;
   }
 
-  if (pathname === '/.well-known/oauth-authorization-server' && req.method === 'GET') {
-    return handleAuthorizationServerMetadata(config, res).then(() => true);
-  }
-
-  if (pathname === '/oauth/register' && req.method === 'POST') {
-    return handleRegister(req, res).then(() => true);
-  }
-
-  if (pathname === '/oauth/authorize' && req.method === 'GET') {
-    return handleAuthorizeGet(config, req, res).then(() => true);
-  }
-
-  if (pathname === '/oauth/authorize' && req.method === 'POST') {
-    return handleAuthorizePost(config, req, res).then(() => true);
-  }
-
-  if (pathname === '/oauth/token' && req.method === 'POST') {
-    return handleToken(config, req, res).then(() => true);
-  }
-
-  return false;
+  await route.handler(config, req, res);
+  return true;
 }

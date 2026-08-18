@@ -13,8 +13,6 @@ export interface AuthCode {
   redirectUri: string;
   codeChallenge: string;
   codeChallengeMethod: string;
-  resource?: string;
-  state?: string;
   expiresAt: number;
   used: boolean;
 }
@@ -72,9 +70,4 @@ function purgeExpiredCodes() {
       authCodes.delete(code);
     }
   }
-}
-
-export function resetOAuthStore() {
-  clients.clear();
-  authCodes.clear();
 }

@@ -1,5 +1,10 @@
+import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
-import { createPkceChallenge, verifyPkceS256 } from '../../src/oauth/pkce.js';
+import { verifyPkceS256 } from '../../src/oauth/pkce.js';
+
+function createPkceChallenge(codeVerifier: string): string {
+  return createHash('sha256').update(codeVerifier).digest().toString('base64url');
+}
 
 describe('pkce', () => {
   it('verifies a valid S256 challenge', () => {

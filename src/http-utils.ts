@@ -47,12 +47,3 @@ export function safeEqual(a: string, b: string): boolean {
   }
   return timingSafeEqual(bufA, bufB);
 }
-
-export function parseFormBody(body: string): Record<string, string> {
-  const params = new URLSearchParams(body);
-  const result: Record<string, string> = {};
-  for (const [key, value] of params.entries()) {
-    result[key] = value;
-  }
-  return result;
-}
