@@ -7,6 +7,8 @@ import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
 import { isMcpAuthorized, sendMcpUnauthorized } from './auth.js';
 import { config } from './config.js';
 import { logger } from './logger.js';
+
+process.env.OAUTH_DATA_DIR ??= config.oauthDataDir;
 import { readBody, sendJson, setCorsHeaders } from './http-utils.js';
 import { tryHandleOAuthRoute } from './oauth/handlers.js';
 import { createMcpServer } from './server.js';

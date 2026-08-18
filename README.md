@@ -93,7 +93,20 @@ POST http://localhost:3000/mcp
 
 ## Production (Docker + Cloudflare Tunnel)
 
-Host the MCP server on a public domain. Fakturownia and CEIDG tokens stay on the server — clients authenticate with OAuth (Claude) and/or a static Bearer key (Cursor, OpenClaw).
+Host the MCP server on a public domain. Fakturownia and CEIDG tokens stay on the server — clients authenticate at the MCP layer (see below).
+
+### Authentication options
+
+**Recommended for most setups:** static Bearer token (`MCP_ACCESS_API_KEY`). Simpler, fewer moving parts. Works well for Cursor, OpenClaw, Claude Desktop (via `mcp-remote`), and local dev.
+
+**OAuth (Claude web / mobile only):** Claude custom connectors require OAuth discovery — they won't accept a pasted API key. The OAuth implementation here is a **minimal single-user shim**, not a general-purpose identity provider:
+
+- One shared consent password; all tokens map to a single owner
+- Built only to unlock Claude web, desktop, and mobile custom connectors against the same deployed server
+- Hardcoded Claude redirect URIs; not for arbitrary OAuth clients
+- Registered clients persist on disk (`/data` volume); authorization codes (mid-login tickets) do not
+
+If you don't need Claude web/mobile, skip OAuth entirely and use `MCP_ACCESS_API_KEY`.
 
 ### 1. Configure secrets
 
@@ -110,7 +123,8 @@ Fill in `.env`:
 | `MCP_PUBLIC_URL` | OAuth metadata + JWT audience (required for Claude OAuth) |
 | `OAUTH_JWT_SECRET` | Signs OAuth access tokens (`openssl rand -hex 32`) |
 | `OAUTH_CONSENT_PASSWORD` | Password on the OAuth consent page (single user) |
-| `MCP_ACCESS_API_KEY` | Optional static Bearer for Cursor/OpenClaw |
+| `OAUTH_DATA_DIR` | Directory for persisted OAuth clients (default `/data`; mounted as Docker volume) |
+| `MCP_ACCESS_API_KEY` | Static Bearer — **recommended** for Cursor, OpenClaw, Desktop via mcp-remote |
 | `CLOUDFLARE_TUNNEL_TOKEN` | cloudflared container only |
 
 ### 2. Cloudflare Tunnel
@@ -129,7 +143,9 @@ docker compose up -d --build
 
 Public MCP endpoint: `https://mcp.yourdomain.com/mcp`
 
-### 4. Connect Claude (custom connector, OAuth)
+### 4. Connect Claude web/mobile (OAuth — optional)
+
+Only needed for Claude **custom connectors** in web or mobile. Skip if you use Claude Desktop with `mcp-remote` + static Bearer (section 5).
 
 1. Claude → **Customize → Connectors → Add custom connector**
 2. URL: `https://mcp.yourdomain.com/mcp` (must match `MCP_PUBLIC_URL/mcp` exactly)
@@ -144,11 +160,11 @@ curl -i https://mcp.yourdomain.com/mcp
 curl https://mcp.yourdomain.com/.well-known/oauth-protected-resource
 ```
 
-**Note:** OAuth clients and codes are in-memory. Container restart requires re-connecting in Claude.
+**Note:** Registered OAuth clients persist on the `/data` volume across restarts. Short-lived authorization codes (mid-login) are not persisted — if a restart happens during login, approve again.
 
-### 5. Connect other clients (static Bearer)
+### 5. Connect other clients (static Bearer — recommended)
 
-Optional if `MCP_ACCESS_API_KEY` is set. Auth header: `Authorization: Bearer <MCP_ACCESS_API_KEY>`
+Optional if `MCP_ACCESS_API_KEY` is set — this is the **preferred** auth method when your client supports it. Auth header: `Authorization: Bearer <MCP_ACCESS_API_KEY>`
 
 **Cursor** (or other HTTP-native MCP clients):
 

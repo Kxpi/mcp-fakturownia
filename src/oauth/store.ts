@@ -1,4 +1,6 @@
+import path from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { deleteJsonFile, loadJsonFile, saveJsonFile } from './persistence.js';
 
 export interface OAuthClient {
   clientId: string;
@@ -17,13 +19,43 @@ export interface AuthCode {
   used: boolean;
 }
 
+type ClientsFile = { clients: Record<string, OAuthClient> };
+
 const clients = new Map<string, OAuthClient>();
 const authCodes = new Map<string, AuthCode>();
+
+let clientsLoaded = false;
+
+function dataDir(): string {
+  return process.env.OAUTH_DATA_DIR ?? '/data';
+}
+
+function clientsFilePath(): string {
+  return path.join(dataDir(), 'clients.json');
+}
+
+function ensureClientsLoaded(): void {
+  if (clientsLoaded) {
+    return;
+  }
+  clientsLoaded = true;
+  const file = loadJsonFile<ClientsFile>(clientsFilePath(), { clients: {} });
+  for (const [id, client] of Object.entries(file.clients)) {
+    clients.set(id, client);
+  }
+}
+
+function persistClients(): void {
+  saveJsonFile(clientsFilePath(), {
+    clients: Object.fromEntries(clients),
+  });
+}
 
 export function registerClient(input: {
   redirectUris: string[];
   clientName?: string;
 }): OAuthClient {
+  ensureClientsLoaded();
   const client: OAuthClient = {
     clientId: randomUUID(),
     redirectUris: input.redirectUris,
@@ -31,10 +63,12 @@ export function registerClient(input: {
     createdAt: Math.floor(Date.now() / 1000),
   };
   clients.set(client.clientId, client);
+  persistClients();
   return client;
 }
 
 export function getClient(clientId: string): OAuthClient | undefined {
+  ensureClientsLoaded();
   return clients.get(clientId);
 }
 
@@ -70,4 +104,18 @@ function purgeExpiredCodes() {
       authCodes.delete(code);
     }
   }
+}
+
+export function resetOAuthStore(): void {
+  clients.clear();
+  authCodes.clear();
+  clientsLoaded = false;
+  deleteJsonFile(clientsFilePath());
+}
+
+/** @internal Test helper to simulate process restart without re-importing the module. */
+export function reloadOAuthStoreFromDisk(): void {
+  clients.clear();
+  clientsLoaded = false;
+  ensureClientsLoaded();
 }

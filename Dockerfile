@@ -22,6 +22,8 @@ RUN npm ci --omit=dev && npm cache clean --force
 
 COPY --from=builder /app/dist ./dist
 
+RUN mkdir -p /data && chown appuser:appgroup /data
+
 USER appuser
 
 ENV NODE_ENV=production

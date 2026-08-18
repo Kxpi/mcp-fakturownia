@@ -20,6 +20,7 @@ const baseConfigSchema = z.object({
   oauthConsentPassword: z.string().min(1).optional(),
   oauthAccessTokenTtlSeconds: z.coerce.number().positive().default(86400),
   oauthCodeTtlSeconds: z.coerce.number().positive().default(600),
+  oauthDataDir: z.string().default('/data'),
   logLevel: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
   requestTimeoutMs: z.coerce.number().positive().default(20000),
 });
@@ -41,6 +42,7 @@ function parseConfig(): Config {
     oauthConsentPassword: process.env.OAUTH_CONSENT_PASSWORD || undefined,
     oauthAccessTokenTtlSeconds: process.env.OAUTH_ACCESS_TOKEN_TTL_SECONDS || 86400,
     oauthCodeTtlSeconds: process.env.OAUTH_CODE_TTL_SECONDS || 600,
+    oauthDataDir: process.env.OAUTH_DATA_DIR || '/data',
     logLevel: process.env.LOG_LEVEL || 'info',
     requestTimeoutMs: process.env.REQUEST_TIMEOUT_MS || 20000,
   });
