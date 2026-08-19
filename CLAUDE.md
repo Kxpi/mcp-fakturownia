@@ -52,7 +52,7 @@ src/
 ├── tools/
 │   ├── defineTool.ts   # Zod → MCP JSON Schema helper
 │   ├── health.ts         # health_check tool
-│   ├── clients.ts        # 7 client tools + VAT whitelist / CEIDG
+│   ├── clients.ts        # 7 client tools + lookup_company_by_nip
 │   ├── invoices.ts       # 9 invoice tools
 │   ├── products.ts       # 4 product tools
 │   └── expenses.ts       # 4 expense tools (faktury kosztowe)
@@ -68,6 +68,7 @@ src/
     ├── money.ts          # VAT/money calculations
     ├── nip.ts            # Polish NIP validation
     ├── polishAddress.ts  # Parse whitelist `street, XX-XXX city` strings
+    ├── companyLookup.ts  # suggested_create_payload + lookup warnings
     └── responseFilter.ts # API response field filtering
 ```
 
@@ -118,7 +119,7 @@ FAKTUROWNIA_BASE_URL=https://YOUR_SUBDOMAIN.fakturownia.pl
 FAKTUROWNIA_API_TOKEN=your_api_token_here
 
 # OPTIONAL
-CEIDG_API_TOKEN=                  # Fallback for create_client_by_nip when NIP was never VAT-registered
+CEIDG_API_TOKEN=                  # Fallback for lookup_company_by_nip when NIP was never VAT-registered
 LOG_LEVEL=info                    # debug | info | warn | error
 REQUEST_TIMEOUT_MS=20000          # HTTP request timeout
 MAX_LOG_LINES=200                 # Unused in current impl
@@ -141,8 +142,8 @@ Config validation with Zod — exits process with clear error messages if requir
 | `get_all_clients` | List clients (default limit: 100) |
 | `get_client_by_nip` | Find single client by NIP (exact match) |
 | `get_client_by_name` | Search clients by name (partial, case-insensitive) |
-| `create_client` | Create client with manual data |
-| `create_client_by_nip` | Auto-create from VAT whitelist (CEIDG fallback if never VAT-registered) |
+| `lookup_company_by_nip` | Registry lookup (VAT whitelist + CEIDG fallback); returns suggested_create_payload |
+| `create_client` | Create client in Fakturownia |
 | `update_client` | Update client fields |
 | `delete_client` | Delete client (requires confirm=true) |
 
@@ -291,7 +292,7 @@ The tool layer translates between user-friendly names and API field names.
 
 ## VAT Whitelist (primary NIP lookup)
 
-`create_client_by_nip` looks up the MF VAT whitelist first, then CEIDG.
+`lookup_company_by_nip` looks up the MF VAT whitelist first, then CEIDG. The agent calls `create_client` separately with `suggested_create_payload`.
 
 ```
 GET https://wl-api.mf.gov.pl/api/search/nip/{nip}?date=YYYY-MM-DD
@@ -509,7 +510,7 @@ Fall back to CEIDG only when `subject` or `subject.name` is null (never VAT-regi
    - `getClientByNipInputSchema` (with NIP cleaning + checksum validation)
    - `getClientByNameInputSchema`
    - `createClientInputSchema` (all optional fields use `.nullish().transform()`)
-   - `createClientByNipInputSchema` (with override object)
+   - `lookupCompanyByNipInputSchema`
    - `updateClientInputSchema`
    - `deleteClientInputSchema` (with confirm boolean)
 3. Create `src/schemas/invoices.ts`:
@@ -600,9 +601,9 @@ z.string().nullish().transform((val) => val || undefined)
    - `CeidgCache` class: in-memory Map with 24h TTL
    - `getCompanyByNip()` — fetch, parse v3 response structure, build address string
    - Handle: no token configured (clear error message), 401/403, 404, network errors
-2. Add `handleCreateClientByNip` to clients.ts:
-   - Validate NIP → fetch from CEIDG → check status (reject inactive unless `allow_inactive`) → build payload → create in Fakturownia
-   - Add metadata note: `[Auto-imported from CEIDG on YYYY-MM-DD. Status: AKTYWNY]`
+2. Add `handleLookupCompanyByNip` to clients.ts:
+   - Validate NIP → fetch from VAT whitelist → CEIDG fallback → return `suggested_create_payload` (no Fakturownia write)
+   - Agent calls `create_client` separately after reviewing warnings
 
 **CEIDG v3 response mapping**:
 - `company.nazwa` → name

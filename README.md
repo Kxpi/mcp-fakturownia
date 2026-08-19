@@ -6,7 +6,7 @@ An MCP (Model Context Protocol) server for the [Fakturownia](https://fakturownia
 
 - 25 MCP tools for invoices, clients, products, and expenses
 - Two transport modes: **stdio** and **Streamable HTTP**
-- Auto-create clients by NIP via the MF VAT whitelist (CEIDG fallback for never-VAT-registered entities)
+- Auto-create clients by NIP via registry lookup (`lookup_company_by_nip`) then `create_client`
 - Polish NIP validation with checksum
 - Response filtering to minimize token usage
 - Retry logic with exponential backoff
@@ -230,8 +230,8 @@ For production with tunnel, use `docker compose` above instead.
 | Clients | `get_all_clients` | List clients |
 | | `get_client_by_nip` | Find by NIP |
 | | `get_client_by_name` | Search by name |
-| | `create_client` | Create manually |
-| | `create_client_by_nip` | Auto-create from VAT whitelist (CEIDG fallback) |
+| | `lookup_company_by_nip` | Registry lookup (VAT whitelist + CEIDG fallback) |
+| | `create_client` | Create in Fakturownia |
 | | `update_client` | Update fields |
 | | `delete_client` | Delete (confirm required) |
 | Invoices | `get_invoices` | List with filters |
@@ -252,7 +252,9 @@ For production with tunnel, use `docker compose` above instead.
 | | `create_expense` | Create expense from vendor |
 | | `delete_expense` | Delete (confirm required) |
 
-## Client lookup by NIP (`create_client_by_nip`)
+## Company lookup by NIP (`lookup_company_by_nip`)
+
+Read-only registry lookup — does **not** create a Fakturownia client. Workflow: `get_client_by_nip` → if missing, `lookup_company_by_nip` → review `warnings` → `create_client` with `suggested_create_payload`.
 
 Primary source is the Ministry of Finance [VAT whitelist](https://www.podatki.gov.pl/wykaz-podatnikow-vat-wyszukiwarka) API — no API key:
 

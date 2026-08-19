@@ -24,7 +24,7 @@ export class CeidgClient {
   async getCompanyByNip(nip: string): Promise<CeidgCompany> {
     if (!this.apiToken) {
       throw new FakturowniaError(
-        'CEIDG API token not configured. Set CEIDG_API_TOKEN to enable create_client_by_nip fallback for NIPs that were never VAT-registered.',
+        'CEIDG API token not configured. Set CEIDG_API_TOKEN to enable lookup_company_by_nip fallback for NIPs that were never VAT-registered.',
       );
     }
 

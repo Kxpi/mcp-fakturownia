@@ -9,4 +9,10 @@ describe('tool JSON schemas', () => {
       expect(tool.inputSchema).toMatchObject({ type: 'object' });
     }
   });
+
+  it('includes lookup_company_by_nip instead of create_client_by_nip', () => {
+    const names = ALL_TOOL_DEFS.map((tool) => tool.name);
+    expect(names).toContain('lookup_company_by_nip');
+    expect(names).not.toContain('create_client_by_nip');
+  });
 });

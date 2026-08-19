@@ -1,15 +1,21 @@
 import type { FakturowniaApiClient } from '../api/fakturowniaClient.js';
 import type { CeidgClient } from '../api/ceidgClient.js';
-import { buildVatImportNote, type VatWhitelistClient } from '../api/vatWhitelistClient.js';
+import type { VatWhitelistClient } from '../api/vatWhitelistClient.js';
 import { cleanNIP } from '../utils/nip.js';
 import { getToday } from '../utils/dates.js';
+import {
+  buildCeidgSuggestedCreatePayload,
+  buildVatSuggestedCreatePayload,
+  ceidgLookupWarnings,
+  vatLookupWarnings,
+} from '../utils/companyLookup.js';
 import { filterClientList, filterClientDetail } from '../utils/responseFilter.js';
 import {
   getAllClientsInputSchema,
   getClientByNipInputSchema,
   getClientByNameInputSchema,
   createClientInputSchema,
-  createClientByNipInputSchema,
+  lookupCompanyByNipInputSchema,
   updateClientInputSchema,
   deleteClientInputSchema,
 } from '../schemas/clients.js';
@@ -36,16 +42,16 @@ export const getClientByNameToolDef = defineTool(
   getClientByNameInputSchema,
 );
 
-export const createClientToolDef = defineTool(
-  'create_client',
-  'Create a new client in Fakturownia with manually provided data. REQUIRES at least a name. Provide NIP, address, email, phone, bank details as available. For auto-importing from the VAT whitelist (with CEIDG fallback), use create_client_by_nip instead.',
-  createClientInputSchema,
+export const lookupCompanyByNipToolDef = defineTool(
+  'lookup_company_by_nip',
+  'Look up company data by NIP from Polish registries (read-only, does NOT create a Fakturownia client). Primary source: MF VAT whitelist (JDG and KRS — name, address, VAT status, verified bank accounts). Falls back to CEIDG only when the whitelist returns an empty shell (subject.name is null = never VAT-registered). CRITICAL: statusVat "Niezarejestrowany" with a name is still a valid hit (removed payer), not a miss. Returns source, warnings, registry data, and suggested_create_payload ready for create_client. Workflow: get_client_by_nip first → if missing, lookup_company_by_nip → review warnings → create_client with suggested_create_payload.',
+  lookupCompanyByNipInputSchema,
 );
 
-export const createClientByNipToolDef = defineTool(
-  'create_client_by_nip',
-  'Auto-create a client from NIP. Primary source: MF VAT whitelist (JDG and KRS companies — name, address, VAT status, verified bank accounts). Falls back to CEIDG only when the whitelist returns an empty shell (subject.name is null = never VAT-registered). CRITICAL: statusVat "Niezarejestrowany" with a name is still a valid hit (removed payer), not a miss. Inactive CEIDG companies are rejected unless allow_inactive=true.',
-  createClientByNipInputSchema,
+export const createClientToolDef = defineTool(
+  'create_client',
+  'Create a new client in Fakturownia. REQUIRES at least a name. Workflow for NIP import: get_client_by_nip → lookup_company_by_nip → create_client with suggested_create_payload (edit fields as needed). Provide NIP, address, email, phone, bank details as available.',
+  createClientInputSchema,
 );
 
 export const updateClientToolDef = defineTool(
@@ -102,6 +108,50 @@ export async function handleGetClientByName(client: FakturowniaApiClient, args: 
   };
 }
 
+export async function handleLookupCompanyByNip(
+  vatClient: VatWhitelistClient,
+  ceidgClient: CeidgClient,
+  args: unknown,
+) {
+  const input = lookupCompanyByNipInputSchema.parse(args);
+  const today = getToday();
+  const vatCompany = await vatClient.getCompanyByNip(input.nip);
+
+  if (vatCompany) {
+    const warnings = vatLookupWarnings(vatCompany);
+    return {
+      source: 'vat_whitelist' as const,
+      data: {
+        name: vatCompany.name,
+        nip: input.nip,
+        status_vat: vatCompany.statusVat,
+        account_numbers: vatCompany.accountNumbers,
+        removal_basis: vatCompany.removalBasis,
+        removal_date: vatCompany.removalDate,
+      },
+      warnings,
+      suggested_create_payload: buildVatSuggestedCreatePayload(vatCompany, input.nip, today),
+      message: `Found "${vatCompany.name}" on VAT whitelist (VAT status: ${vatCompany.statusVat})`,
+    };
+  }
+
+  const company = await ceidgClient.getCompanyByNip(input.nip);
+  const warnings = ceidgLookupWarnings(company);
+
+  return {
+    source: 'ceidg' as const,
+    data: {
+      name: company.name,
+      nip: company.nip,
+      status: company.status,
+      start_date: company.startDate,
+    },
+    warnings,
+    suggested_create_payload: buildCeidgSuggestedCreatePayload(company, today),
+    message: `Found "${company.name}" in CEIDG (VAT whitelist had no identity data)`,
+  };
+}
+
 export async function handleCreateClient(client: FakturowniaApiClient, args: unknown) {
   const input = createClientInputSchema.parse(args);
   const payload: AnyRecord = { name: input.name };
@@ -119,72 +169,6 @@ export async function handleCreateClient(client: FakturowniaApiClient, args: unk
 
   const result = await client.createClient(payload);
   return { data: filterClientDetail(result as AnyRecord), message: 'Client created successfully' };
-}
-
-export async function handleCreateClientByNip(
-  apiClient: FakturowniaApiClient,
-  vatClient: VatWhitelistClient,
-  ceidgClient: CeidgClient,
-  args: unknown,
-) {
-  const input = createClientByNipInputSchema.parse(args);
-  const vatCompany = await vatClient.getCompanyByNip(input.nip);
-
-  if (vatCompany) {
-    const payload: AnyRecord = {
-      name: vatCompany.name,
-      tax_no: input.nip,
-      street: vatCompany.street,
-      city: vatCompany.city,
-      post_code: vatCompany.postCode,
-      country: 'PL',
-      note: buildVatImportNote(vatCompany, getToday()),
-    };
-    if (vatCompany.accountNumbers[0]) payload.bank_account = vatCompany.accountNumbers[0];
-
-    if (input.overrides?.email) payload.email = input.overrides.email;
-    if (input.overrides?.phone) payload.phone = input.overrides.phone;
-    if (input.overrides?.bank) payload.bank = input.overrides.bank;
-    if (input.overrides?.bank_account) payload.bank_account = input.overrides.bank_account;
-    if (input.overrides?.notes) payload.note += `\n${input.overrides.notes}`;
-
-    const result = await apiClient.createClient(payload);
-    return {
-      data: filterClientDetail(result as AnyRecord),
-      message: `Client "${vatCompany.name}" created from VAT whitelist (VAT status: ${vatCompany.statusVat})`,
-    };
-  }
-
-  const company = await ceidgClient.getCompanyByNip(input.nip);
-
-  if (!input.allow_inactive && company.status !== 'AKTYWNY') {
-    return {
-      data: null,
-      message: `Company with NIP ${input.nip} is ${company.status} (not active). Set allow_inactive=true to override.`,
-    };
-  }
-
-  const payload: AnyRecord = {
-    name: company.name,
-    tax_no: input.nip,
-    street: company.street,
-    city: company.city,
-    post_code: company.postCode,
-    country: 'PL',
-    note: `[Auto-imported from CEIDG on ${getToday()}. Status: ${company.status}. VAT whitelist had no identity data (never VAT-registered).]`,
-  };
-
-  if (input.overrides?.email) payload.email = input.overrides.email;
-  if (input.overrides?.phone) payload.phone = input.overrides.phone;
-  if (input.overrides?.bank) payload.bank = input.overrides.bank;
-  if (input.overrides?.bank_account) payload.bank_account = input.overrides.bank_account;
-  if (input.overrides?.notes) payload.note += `\n${input.overrides.notes}`;
-
-  const result = await apiClient.createClient(payload);
-  return {
-    data: filterClientDetail(result as AnyRecord),
-    message: `Client "${company.name}" created from CEIDG registry (VAT whitelist empty shell)`,
-  };
 }
 
 export async function handleUpdateClient(client: FakturowniaApiClient, args: unknown) {

@@ -53,26 +53,8 @@ export const createClientInputSchema = z.object({
   shortcut: nullishString.describe('Short name/abbreviation'),
 });
 
-export const createClientByNipInputSchema = z.object({
-  nip: nipField('Polish NIP number (10 digits, string or number, REQUIRED)'),
-  allow_inactive: z
-    .boolean()
-    .nullish()
-    .transform((val) => val ?? false)
-    .describe(
-      'Allow importing inactive/suspended CEIDG companies (default: false). Not applied to VAT whitelist hits.',
-    ),
-  overrides: z
-    .object({
-      email: nullishString,
-      phone: nullishString,
-      bank: nullishString,
-      bank_account: nullishString,
-      notes: nullishString,
-    })
-    .nullish()
-    .transform((val) => val ?? undefined)
-    .describe('Override auto-fetched fields (email, phone, bank, bank_account, notes)'),
+export const lookupCompanyByNipInputSchema = z.object({
+  nip: nipField('Polish NIP number (10 digits, string or number, dashes accepted)'),
 });
 
 export const updateClientInputSchema = z.object({
