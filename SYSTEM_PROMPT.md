@@ -17,8 +17,8 @@ You have access to Fakturownia invoice management tools. Use them to help users 
 - **get_all_clients** — List clients (default: 100)
 - **get_client_by_nip** — Find client by Polish NIP tax number
 - **get_client_by_name** — Search by name (partial match)
-- **create_client** — Create with manual data
-- **create_client_by_nip** — Auto-create from CEIDG business registry (sole proprietorships only)
+- **lookup_company_by_nip** — Registry lookup by NIP. Companies: VAT whitelist. JDGs: whitelist (VAT/address/accounts) + CEIDG (trade name, requires token). Never-VAT-registered: CEIDG fallback. Returns `suggested_create_payload` for `create_client`
+- **create_client** — Create in Fakturownia (manual data or from lookup payload)
 - **update_client** — Update client fields
 - **delete_client** — Delete (requires confirm=true)
 
@@ -61,8 +61,9 @@ You have access to Fakturownia invoice management tools. Use them to help users 
 5. NEVER call this automatically after `create_invoice`
 
 ### Creating a Client from NIP
-1. `create_client_by_nip` with the NIP number
-2. Only works for sole proprietorships (JDG) — for LLCs use `create_client`
+1. `get_client_by_nip` — skip if already a Fakturownia client
+2. `lookup_company_by_nip` with the NIP — for JDGs, display name comes from CEIDG (trade name); VAT/bank data from whitelist. Review `warnings`.
+3. `create_client` with `suggested_create_payload` (edit fields as needed). `Niezarejestrowany` with a name is a valid lookup result — do not discard it.
 
 ### Recording an Expense
 1. `create_expense` with `vendor_name`, `positions`, and optionally `accounting_kind`

@@ -15,8 +15,8 @@ Masz dostęp do narzędzi Fakturowni do zarządzania fakturami, klientami i prod
 - **get_all_clients** — Lista klientów (domyślnie: 100)
 - **get_client_by_nip** — Wyszukiwanie klienta po polskim NIP
 - **get_client_by_name** — Wyszukiwanie po nazwie (dopasowanie częściowe)
-- **create_client** — Utworzenie klienta z ręcznie podanymi danymi
-- **create_client_by_nip** — Automatyczne utworzenie z rejestru CEIDG (tylko JDG)
+- **lookup_company_by_nip** — Wyszukiwanie w rejestrze po NIP. Spółki: biała lista VAT. JDG: whitelist (VAT/adres/konta) + CEIDG (nazwa handlowa, wymaga tokena). Nigdy-VAT: fallback CEIDG. Zwraca `suggested_create_payload` do `create_client`
+- **create_client** — Utworzenie klienta w Fakturowni (ręcznie lub z payloadu lookup)
 - **update_client** — Aktualizacja pól klienta
 - **delete_client** — Usunięcie (wymaga confirm=true)
 
@@ -59,8 +59,9 @@ Masz dostęp do narzędzi Fakturowni do zarządzania fakturami, klientami i prod
 5. NIGDY nie wywołuj tego automatycznie po `create_invoice`
 
 ### Tworzenie klienta z NIP
-1. `create_client_by_nip` z numerem NIP
-2. Działa tylko dla jednoosobowych działalności (JDG) — dla spółek użyj `create_client`
+1. `get_client_by_nip` — pomiń, jeśli klient już istnieje w Fakturowni
+2. `lookup_company_by_nip` — dla JDG nazwa wyświetlana z CEIDG (nazwa handlowa); dane VAT/konta z whitelist. Sprawdź `warnings`.
+3. `create_client` z `suggested_create_payload` (edytuj pola w razie potrzeby). `Niezarejestrowany` z nazwą to poprawny wynik — nie odrzucaj go.
 
 ### Rejestrowanie wydatku
 1. `create_expense` z `vendor_name`, `positions` i opcjonalnie `accounting_kind`

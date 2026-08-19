@@ -22,9 +22,18 @@ export class CeidgClient {
   }
 
   async getCompanyByNip(nip: string): Promise<CeidgCompany> {
+    const company = await this.tryGetCompanyByNip(nip);
+    if (!company) {
+      throw new FakturowniaError(`No company found in CEIDG for NIP ${nip}`, 404);
+    }
+    return company;
+  }
+
+  /** Returns null on 404/empty; throws on auth, config, and network errors. */
+  async tryGetCompanyByNip(nip: string): Promise<CeidgCompany | null> {
     if (!this.apiToken) {
       throw new FakturowniaError(
-        'CEIDG API token not configured. Set CEIDG_API_TOKEN environment variable to use create_client_by_nip.',
+        'CEIDG API token not configured. Set CEIDG_API_TOKEN for lookup_company_by_nip (required for JDG trade names; fallback for never-VAT-registered NIPs).',
       );
     }
 
@@ -50,11 +59,14 @@ export class CeidgClient {
       }
 
       if (statusCode === 401 || statusCode === 403) {
-        throw new FakturowniaError('CEIDG authentication failed — check your CEIDG_API_TOKEN', statusCode);
+        throw new FakturowniaError(
+          'CEIDG authentication failed — check your CEIDG_API_TOKEN',
+          statusCode,
+        );
       }
 
       if (statusCode === 404 || statusCode === 204) {
-        throw new FakturowniaError(`No company found in CEIDG for NIP ${nip}`, 404);
+        return null;
       }
 
       if (statusCode >= 500) {
@@ -62,14 +74,17 @@ export class CeidgClient {
       }
 
       if (statusCode !== 200) {
-        throw new FakturowniaError(`CEIDG unexpected response (${statusCode}): ${text}`, statusCode);
+        throw new FakturowniaError(
+          `CEIDG unexpected response (${statusCode}): ${text}`,
+          statusCode,
+        );
       }
 
       const data = JSON.parse(text);
       const firmy = data.firmy;
 
       if (!Array.isArray(firmy) || firmy.length === 0) {
-        throw new FakturowniaError(`No company found in CEIDG for NIP ${nip}`, 404);
+        return null;
       }
 
       const firma = firmy[0];

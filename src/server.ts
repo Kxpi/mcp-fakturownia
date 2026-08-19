@@ -1,12 +1,10 @@
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
-import {
-  CallToolRequestSchema,
-  ListToolsRequestSchema,
-} from '@modelcontextprotocol/sdk/types.js';
+import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import { config } from './config.js';
 import { logger } from './logger.js';
 import { FakturowniaApiClient } from './api/fakturowniaClient.js';
 import { CeidgClient } from './api/ceidgClient.js';
+import { VatWhitelistClient } from './api/vatWhitelistClient.js';
 import { FakturowniaError } from './utils/errors.js';
 
 import { healthCheckToolDef, handleHealthCheck } from './tools/health.js';
@@ -14,15 +12,15 @@ import {
   getAllClientsToolDef,
   getClientByNipToolDef,
   getClientByNameToolDef,
+  lookupCompanyByNipToolDef,
   createClientToolDef,
-  createClientByNipToolDef,
   updateClientToolDef,
   deleteClientToolDef,
   handleGetAllClients,
   handleGetClientByNip,
   handleGetClientByName,
+  handleLookupCompanyByNip,
   handleCreateClient,
-  handleCreateClientByNip,
   handleUpdateClient,
   handleDeleteClient,
 } from './tools/clients.js';
@@ -71,18 +69,22 @@ type ToolHandler = (args: unknown) => Promise<unknown>;
 
 export function createMcpServer(): Server {
   const apiClient = new FakturowniaApiClient();
+  const vatClient = new VatWhitelistClient();
   const ceidgClient = new CeidgClient(config.ceidgApiToken);
 
-  const tools: Array<{ def: { name: string; description: string; inputSchema: unknown }; handle: ToolHandler }> = [
+  const tools: Array<{
+    def: { name: string; description: string; inputSchema: unknown };
+    handle: ToolHandler;
+  }> = [
     { def: healthCheckToolDef, handle: () => handleHealthCheck(apiClient) },
     { def: getAllClientsToolDef, handle: (args) => handleGetAllClients(apiClient, args) },
     { def: getClientByNipToolDef, handle: (args) => handleGetClientByNip(apiClient, args) },
     { def: getClientByNameToolDef, handle: (args) => handleGetClientByName(apiClient, args) },
-    { def: createClientToolDef, handle: (args) => handleCreateClient(apiClient, args) },
     {
-      def: createClientByNipToolDef,
-      handle: (args) => handleCreateClientByNip(apiClient, ceidgClient, args),
+      def: lookupCompanyByNipToolDef,
+      handle: (args) => handleLookupCompanyByNip(vatClient, ceidgClient, args),
     },
+    { def: createClientToolDef, handle: (args) => handleCreateClient(apiClient, args) },
     { def: updateClientToolDef, handle: (args) => handleUpdateClient(apiClient, args) },
     { def: deleteClientToolDef, handle: (args) => handleDeleteClient(apiClient, args) },
     { def: getInvoicesToolDef, handle: (args) => handleGetInvoices(apiClient, args) },
@@ -145,8 +147,7 @@ export function createMcpServer(): Server {
         };
       }
 
-      const message =
-        error instanceof Error ? error.message : 'An unexpected error occurred';
+      const message = error instanceof Error ? error.message : 'An unexpected error occurred';
       return {
         content: [{ type: 'text', text: JSON.stringify({ error: message }) }],
         isError: true,
