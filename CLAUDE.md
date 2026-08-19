@@ -4,13 +4,13 @@ Complete project context and implementation guide for recreating the Fakturownia
 
 ## Project Overview
 
-An MCP (Model Context Protocol) server that wraps the Fakturownia REST API, enabling LLMs to manage Polish invoices, clients, and products. Includes integration with CEIDG (Polish business registry) for automatic client creation from NIP (tax ID).
+An MCP (Model Context Protocol) server that wraps the Fakturownia REST API, enabling LLMs to manage Polish invoices, clients, and products. Includes VAT whitelist lookup (with CEIDG fallback) for automatic client creation from NIP (tax ID).
 
 ### What It Does
 
 - Exposes 25 MCP tools for managing invoices, clients, products, and expenses
 - Two transport modes: **stdio** (for direct MCP client use) and **HTTP with Streamable HTTP** (for remote/Docker deployment)
-- Integrates with CEIDG API v3 for fetching company data by NIP
+- Integrates with the MF VAT whitelist (primary) and CEIDG API v3 (fallback) for fetching company data by NIP
 - Filters API responses to minimize LLM token usage
 - Validates Polish NIP numbers with checksum algorithm
 - Handles VAT calculations (net/gross conversion)
@@ -24,7 +24,7 @@ An MCP (Model Context Protocol) server that wraps the Fakturownia REST API, enab
 | Runtime | Node.js 20+ | ES modules (`"type": "module"`) |
 | Language | TypeScript 5.x | Strict mode, Node16 module resolution |
 | MCP SDK | `@modelcontextprotocol/sdk` | Use latest version |
-| HTTP Client | `undici` | For Fakturownia & CEIDG API calls |
+| HTTP Client | `undici` | For Fakturownia, VAT whitelist & CEIDG API calls |
 | Validation | `zod` | Input schemas with LLM-friendly transforms |
 | Logging | `pino` + `pino-pretty` | Logs to **stderr** (critical for stdio MCP) |
 | Env | `dotenv` | `.env` file loading |
@@ -46,12 +46,13 @@ src/
 ├── logger.ts             # Pino logger → stderr
 ├── api/
 │   ├── fakturowniaClient.ts   # Fakturownia HTTP client with retries
-│   ├── ceidgClient.ts         # CEIDG API v3 client
+│   ├── vatWhitelistClient.ts  # MF VAT whitelist (primary NIP lookup)
+│   ├── ceidgClient.ts         # CEIDG API v3 client (fallback)
 │   └── endpoints.ts           # API endpoint path definitions
 ├── tools/
 │   ├── defineTool.ts   # Zod → MCP JSON Schema helper
 │   ├── health.ts         # health_check tool
-│   ├── clients.ts        # 7 client tools + CEIDG integration
+│   ├── clients.ts        # 7 client tools + VAT whitelist / CEIDG
 │   ├── invoices.ts       # 9 invoice tools
 │   ├── products.ts       # 4 product tools
 │   └── expenses.ts       # 4 expense tools (faktury kosztowe)
@@ -66,6 +67,7 @@ src/
     ├── dates.ts          # Date formatting helpers
     ├── money.ts          # VAT/money calculations
     ├── nip.ts            # Polish NIP validation
+    ├── polishAddress.ts  # Parse whitelist `street, XX-XXX city` strings
     └── responseFilter.ts # API response field filtering
 ```
 
@@ -116,7 +118,7 @@ FAKTUROWNIA_BASE_URL=https://YOUR_SUBDOMAIN.fakturownia.pl
 FAKTUROWNIA_API_TOKEN=your_api_token_here
 
 # OPTIONAL
-CEIDG_API_TOKEN=                  # Required for create_client_by_nip tool (CEIDG v3)
+CEIDG_API_TOKEN=                  # Fallback for create_client_by_nip when NIP was never VAT-registered
 LOG_LEVEL=info                    # debug | info | warn | error
 REQUEST_TIMEOUT_MS=20000          # HTTP request timeout
 MAX_LOG_LINES=200                 # Unused in current impl
@@ -140,7 +142,7 @@ Config validation with Zod — exits process with clear error messages if requir
 | `get_client_by_nip` | Find single client by NIP (exact match) |
 | `get_client_by_name` | Search clients by name (partial, case-insensitive) |
 | `create_client` | Create client with manual data |
-| `create_client_by_nip` | Auto-create from CEIDG registry (NIP only) |
+| `create_client_by_nip` | Auto-create from VAT whitelist (CEIDG fallback if never VAT-registered) |
 | `update_client` | Update client fields |
 | `delete_client` | Delete client (requires confirm=true) |
 
@@ -287,13 +289,32 @@ The tool layer translates between user-friendly names and API field names.
 
 ---
 
-## CEIDG Integration (Polish Business Registry)
+## VAT Whitelist (primary NIP lookup)
 
-> **FUTURE MIGRATION**: Replace CEIDG with **GUS BIR1** (REGON registry) for broader coverage.
-> GUS BIR supports **all entity types** (not just sole proprietorships) and search by **NIP, REGON, and KRS**.
-> Use the [`bir1`](https://github.com/pawel-id/bir1) npm package (pure ESM, TypeScript, handles SOAP internally, returns JSON).
-> Production key obtained by emailing `regon_bir@stat.gov.pl`.
-> Sandbox works without a key for testing. See: https://api.stat.gov.pl/Home/RegonApi
+`create_client_by_nip` looks up the MF VAT whitelist first, then CEIDG.
+
+```
+GET https://wl-api.mf.gov.pl/api/search/nip/{nip}?date=YYYY-MM-DD
+```
+
+No API key. `date` is required (today). Covers JDG **and** KRS entities. Returns VAT status and verified `accountNumbers`. Rate limit ~10 requests/day per IP; 429 is retried with backoff.
+
+**Empty shell vs removed payer — do not mix these up:**
+
+- `subject == null` or `subject.name == null` → never VAT-registered → fall back to CEIDG
+- `statusVat === "Niezarejestrowany"` **with a name** → was registered, later removed → **usable whitelist hit**, not a miss
+
+Address is a single string in `workingAddress ?? residenceAddress`. Parse `street, XX-XXX city` via `parsePolishAddress`; unparsed leftovers stay in `street` for manual review.
+
+VAT status, removal/denial reasons, and account numbers go into the Fakturownia `note`. First account also fills `bank_account`.
+
+---
+
+## CEIDG Integration (fallback for never-VAT-registered NIPs)
+
+CEIDG is the **fallback** when the VAT whitelist returns an empty shell. It still only covers sole proprietorships (JDG).
+
+> **FUTURE**: For entities that have never had VAT obligations (some foundations/holdings), GUS BIR1 (REGON) would cover more than CEIDG. Out of scope until it matters. See: https://api.stat.gov.pl/Home/RegonApi
 
 ### API Version
 **CEIDG API v3** — as of October 2025, v1 and v2 are deprecated.
@@ -407,6 +428,9 @@ Fakturownia may not support "draft" status directly — it typically creates inv
 
 ### 14. Tool descriptions are LLM prompts
 Tool descriptions in MCP are read by LLMs to decide which tool to use. Make them detailed, include workflows, mention defaults, and use CRITICAL/REQUIRES/MUST for important info.
+
+### 15. VAT whitelist `Niezarejestrowany` is not "not found"
+Fall back to CEIDG only when `subject` or `subject.name` is null (never VAT-registered). A removed payer still has a name and is a valid whitelist result.
 
 ---
 
@@ -705,6 +729,11 @@ The system prompt should include:
 - API token in query params: `{ ...query, api_token: this.apiToken }`
 - URL construction: `${baseUrl}${endpoint}${buildQueryParams(allQuery)}`
 - Empty response body: return `{} as T` (some DELETE endpoints return empty)
+
+### vatWhitelistClient.ts
+- No auth. `date` query param is required (today).
+- `mapVatSubject` returns null only when `subject`/`name` is null — not when `statusVat` is `Niezarejestrowany`.
+- 429/5xx retried with backoff. Process-local cache keyed by nip+date (MF ~10 req/IP/day).
 ### responseFilter.ts
 - Define field arrays as `const` with `as const`
 - `pickFields()` skips undefined, null, and empty string values
@@ -750,6 +779,7 @@ export async function handleToolName(client: FakturowniaApiClient, args: unknown
 - [ ] Client CRUD (create, read, update, delete)
 - [ ] Client search (by NIP, by name partial match)
 - [ ] CEIDG lookup (valid NIP, not found, inactive, no token)
+- [ ] VAT whitelist lookup (active, removed-with-name, never-registered empty shell, 429)
 - [ ] Invoice CRUD (create with positions, read, update, delete)
 - [ ] Invoice date filtering (verify period=more is sent)
 - [ ] Invoice position calculations (net→gross→total)

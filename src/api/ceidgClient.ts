@@ -24,7 +24,7 @@ export class CeidgClient {
   async getCompanyByNip(nip: string): Promise<CeidgCompany> {
     if (!this.apiToken) {
       throw new FakturowniaError(
-        'CEIDG API token not configured. Set CEIDG_API_TOKEN environment variable to use create_client_by_nip.',
+        'CEIDG API token not configured. Set CEIDG_API_TOKEN to enable create_client_by_nip fallback for NIPs that were never VAT-registered.',
       );
     }
 
@@ -50,7 +50,10 @@ export class CeidgClient {
       }
 
       if (statusCode === 401 || statusCode === 403) {
-        throw new FakturowniaError('CEIDG authentication failed — check your CEIDG_API_TOKEN', statusCode);
+        throw new FakturowniaError(
+          'CEIDG authentication failed — check your CEIDG_API_TOKEN',
+          statusCode,
+        );
       }
 
       if (statusCode === 404 || statusCode === 204) {
@@ -62,7 +65,10 @@ export class CeidgClient {
       }
 
       if (statusCode !== 200) {
-        throw new FakturowniaError(`CEIDG unexpected response (${statusCode}): ${text}`, statusCode);
+        throw new FakturowniaError(
+          `CEIDG unexpected response (${statusCode}): ${text}`,
+          statusCode,
+        );
       }
 
       const data = JSON.parse(text);

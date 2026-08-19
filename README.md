@@ -6,7 +6,7 @@ An MCP (Model Context Protocol) server for the [Fakturownia](https://fakturownia
 
 - 25 MCP tools for invoices, clients, products, and expenses
 - Two transport modes: **stdio** and **Streamable HTTP**
-- CEIDG integration for auto-creating clients from Polish business registry
+- Auto-create clients by NIP via the MF VAT whitelist (CEIDG fallback for never-VAT-registered entities)
 - Polish NIP validation with checksum
 - Response filtering to minimize token usage
 - Retry logic with exponential backoff
@@ -31,7 +31,7 @@ Required:
 - `FAKTUROWNIA_API_TOKEN` — Your API token
 
 Optional:
-- `CEIDG_API_TOKEN` — For CEIDG business registry lookups
+- `CEIDG_API_TOKEN` — CEIDG fallback when a NIP was never VAT-registered (optional; whitelist needs no key)
 
 ### 3. Build & Run
 
@@ -231,7 +231,7 @@ For production with tunnel, use `docker compose` above instead.
 | | `get_client_by_nip` | Find by NIP |
 | | `get_client_by_name` | Search by name |
 | | `create_client` | Create manually |
-| | `create_client_by_nip` | Auto-create from CEIDG |
+| | `create_client_by_nip` | Auto-create from VAT whitelist (CEIDG fallback) |
 | | `update_client` | Update fields |
 | | `delete_client` | Delete (confirm required) |
 | Invoices | `get_invoices` | List with filters |
@@ -251,6 +251,22 @@ For production with tunnel, use `docker compose` above instead.
 | | `get_expense_by_id` | Full expense details |
 | | `create_expense` | Create expense from vendor |
 | | `delete_expense` | Delete (confirm required) |
+
+## Client lookup by NIP (`create_client_by_nip`)
+
+Primary source is the Ministry of Finance [VAT whitelist](https://www.podatki.gov.pl/wykaz-podatnikow-vat-wyszukiwarka) API — no API key:
+
+```
+GET https://wl-api.mf.gov.pl/api/search/nip/{nip}?date=YYYY-MM-DD
+```
+
+It covers both sole proprietorships (JDG) and KRS entities (sp. z o.o., S.A., …) and returns VAT status plus verified bank accounts. `date` is required; we send today. Rate limit is about **10 requests/day per IP** (batch endpoint allows 30 NIPs per call; we query one at a time). 429 responses are retried with backoff.
+
+**Fallback to CEIDG** only when the whitelist returns an empty shell: `subject` is null, or `subject.name` is null. That means the NIP was never VAT-registered. CEIDG still needs `CEIDG_API_TOKEN` and only covers JDG.
+
+Do **not** treat `statusVat: "Niezarejestrowany"` as "not found". Removed payers keep name/address/REGON; that is a valid whitelist hit. The empty-shell (never registered) case is the null name.
+
+VAT status, removal/denial reasons, and verified account numbers are stored on the Fakturownia client `note` (first account also goes into `bank_account`). Unusual address strings that are not `street, XX-XXX city` are left in `street` for manual review.
 
 ## License
 
