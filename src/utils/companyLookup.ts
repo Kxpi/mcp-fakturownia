@@ -41,11 +41,12 @@ export function buildVatSuggestedCreatePayload(
   return {
     name,
     nip,
-    street: company.street || undefined,
-    city: company.city || undefined,
-    zip: company.postCode || undefined,
+    street: company.addressParsed ? company.street || undefined : undefined,
+    city: company.addressParsed ? company.city || undefined : undefined,
+    zip: company.addressParsed ? company.postCode || undefined : undefined,
     country: 'PL',
-    bank_account: company.accountNumbers[0],
+    bank_account:
+      company.accountNumbers.length === 1 ? company.accountNumbers[0] : undefined,
     notes,
   };
 }
@@ -65,24 +66,8 @@ export function buildCeidgSuggestedCreatePayload(
   };
 }
 
-export function vatLookupWarnings(company: VatCompany): string[] {
-  const warnings: string[] = [];
-  if (company.statusVat === 'Niezarejestrowany') {
-    warnings.push(
-      'VAT status is Niezarejestrowany — entity was VAT-registered before (removed payer), not a lookup miss.',
-    );
-  }
-  if (!company.addressParsed) {
-    warnings.push(
-      'Address could not be split into street/postcode/city — review suggested_create_payload before create_client.',
-    );
-  }
-  if (company.accountNumbers.length > 1) {
-    warnings.push(
-      `Multiple verified accounts on file (${company.accountNumbers.length}); first account is in suggested_create_payload.`,
-    );
-  }
-  return warnings;
+export function vatLookupWarnings(_company: VatCompany): string[] {
+  return [];
 }
 
 export function ceidgLookupWarnings(company: CeidgCompany): string[] {

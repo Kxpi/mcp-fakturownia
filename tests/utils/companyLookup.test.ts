@@ -71,6 +71,34 @@ describe('buildVatSuggestedCreatePayload', () => {
     expect(payload.notes).toContain('Whitelist personal name: KACPER WIŚNIEWSKI');
     expect(payload.bank_account).toBe('77109013170000000156952242');
   });
+  it('omits bank_account when multiple verified accounts exist', () => {
+    const payload = buildVatSuggestedCreatePayload(
+      {
+        ...activeVat,
+        accountNumbers: ['111', '222'],
+      },
+      '6070095262',
+      '2026-08-19',
+    );
+    expect(payload.bank_account).toBeUndefined();
+  });
+
+  it('omits address fields when whitelist address was not parsed', () => {
+    const payload = buildVatSuggestedCreatePayload(
+      {
+        ...activeVat,
+        street: 'LOKAL PRZY RYNKU',
+        city: '',
+        postCode: '',
+        addressParsed: false,
+      },
+      '6070095262',
+      '2026-08-19',
+    );
+    expect(payload.street).toBeUndefined();
+    expect(payload.city).toBeUndefined();
+    expect(payload.zip).toBeUndefined();
+  });
 });
 
 describe('buildCeidgSuggestedCreatePayload', () => {
@@ -91,9 +119,15 @@ describe('buildCeidgSuggestedCreatePayload', () => {
 });
 
 describe('lookup warnings', () => {
-  it('warns on Niezarejestrowany VAT status with a name', () => {
-    const warnings = vatLookupWarnings({ ...activeVat, statusVat: 'Niezarejestrowany' });
-    expect(warnings.some((w) => w.includes('Niezarejestrowany'))).toBe(true);
+  it('returns no VAT whitelist warnings (removed payer, address, accounts handled silently)', () => {
+    expect(vatLookupWarnings({ ...activeVat, statusVat: 'Niezarejestrowany' })).toEqual([]);
+    expect(
+      vatLookupWarnings({
+        ...activeVat,
+        addressParsed: false,
+        accountNumbers: ['1', '2'],
+      }),
+    ).toEqual([]);
   });
 
   it('warns on inactive CEIDG status', () => {

@@ -85,13 +85,8 @@ export function buildVatImportNote(company: VatCompany, today: string): string {
       `Registration denial: ${[company.registrationDenialBasis, company.registrationDenialDate].filter(Boolean).join(' / ')}`,
     );
   }
-  if (company.accountNumbers.length) {
-    parts.push(`Verified accounts: ${company.accountNumbers.join(', ')}`);
-  }
-  if (!company.addressParsed) {
-    parts.push(
-      'Address could not be split into street/postcode/city (unusual format — review manually).',
-    );
+  if (company.accountNumbers.length === 1) {
+    parts.push(`Verified account: ${company.accountNumbers[0]}`);
   }
   return parts.join(' ');
 }
