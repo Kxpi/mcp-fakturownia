@@ -31,7 +31,7 @@ Required:
 - `FAKTUROWNIA_API_TOKEN` — Your API token
 
 Optional:
-- `CEIDG_API_TOKEN` — CEIDG fallback when a NIP was never VAT-registered (optional; whitelist needs no key)
+- `CEIDG_API_TOKEN` — Required for JDG trade-name resolution; fallback when a NIP was never VAT-registered
 
 ### 3. Build & Run
 
@@ -120,7 +120,7 @@ Fill in `.env`:
 | Variable | Who uses it |
 |----------|-------------|
 | `FAKTUROWNIA_BASE_URL`, `FAKTUROWNIA_API_TOKEN` | MCP server only |
-| `CEIDG_API_TOKEN` | MCP server only (optional) |
+| `CEIDG_API_TOKEN` | MCP server (required for JDG lookups; fallback for never-VAT-registered) |
 | `MCP_PUBLIC_URL` | OAuth metadata + JWT audience (required for Claude OAuth) |
 | `OAUTH_JWT_SECRET` | Signs OAuth access tokens (`openssl rand -hex 32`) |
 | `OAUTH_CONSENT_PASSWORD` | Password on the OAuth consent page (single user) |
@@ -230,7 +230,7 @@ For production with tunnel, use `docker compose` above instead.
 | Clients | `get_all_clients` | List clients |
 | | `get_client_by_nip` | Find by NIP |
 | | `get_client_by_name` | Search by name |
-| | `lookup_company_by_nip` | Registry lookup (VAT whitelist + CEIDG fallback) |
+| | `lookup_company_by_nip` | Registry lookup (VAT whitelist + CEIDG for JDG names) |
 | | `create_client` | Create in Fakturownia |
 | | `update_client` | Update fields |
 | | `delete_client` | Delete (confirm required) |
@@ -264,7 +264,11 @@ GET https://wl-api.mf.gov.pl/api/search/nip/{nip}?date=YYYY-MM-DD
 
 It covers both sole proprietorships (JDG) and KRS entities (sp. z o.o., S.A., …) and returns VAT status plus verified bank accounts. `date` is required; we send today. Rate limit is about **10 requests/day per IP** (batch endpoint allows 30 NIPs per call; we query one at a time). 429 responses are retried with backoff.
 
-**Fallback to CEIDG** only when the whitelist returns an empty shell: `subject` is null, or `subject.name` is null. That means the NIP was never VAT-registered. CEIDG still needs `CEIDG_API_TOKEN` and only covers JDG.
+**JDGs** (`krs` is null): whitelist supplies VAT status, address, and bank accounts; **CEIDG supplies the trade name** (requires `CEIDG_API_TOKEN`). The whitelist only ever returns the bare personal name for JDGs.
+
+**Companies** (`krs` set): whitelist only — its `name` is the registered legal name.
+
+**Never VAT-registered** NIPs: CEIDG-only fallback when the whitelist returns an empty shell (`subject.name` is null). CEIDG only covers JDG.
 
 Do **not** treat `statusVat: "Niezarejestrowany"` as "not found". Removed payers keep name/address/REGON; that is a valid whitelist hit. The empty-shell (never registered) case is the null name.
 

@@ -12,6 +12,7 @@ const MAX_DELAY_MS = 10000;
 export interface VatSubject {
   name: string | null;
   nip: string;
+  krs: string | null;
   statusVat: string | null;
   residenceAddress: string | null;
   workingAddress: string | null;
@@ -25,6 +26,7 @@ export interface VatSubject {
 export interface VatCompany {
   name: string;
   nip: string;
+  krs: string | null;
   street: string;
   city: string;
   postCode: string;
@@ -35,6 +37,11 @@ export interface VatCompany {
   removalDate?: string;
   registrationDenialBasis?: string;
   registrationDenialDate?: string;
+}
+
+/** JDG sole proprietorship — whitelist only returns personal name, not trade name. */
+export function isJdg(company: VatCompany): boolean {
+  return company.krs == null;
 }
 
 /**
@@ -50,6 +57,7 @@ export function mapVatSubject(subject: VatSubject | null | undefined): VatCompan
   return {
     name: subject.name.trim(),
     nip: subject.nip,
+    krs: subject.krs ?? null,
     street: address.street,
     city: address.city,
     postCode: address.postCode,

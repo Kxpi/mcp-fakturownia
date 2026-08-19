@@ -119,7 +119,7 @@ FAKTUROWNIA_BASE_URL=https://YOUR_SUBDOMAIN.fakturownia.pl
 FAKTUROWNIA_API_TOKEN=your_api_token_here
 
 # OPTIONAL
-CEIDG_API_TOKEN=                  # Fallback for lookup_company_by_nip when NIP was never VAT-registered
+CEIDG_API_TOKEN=                  # Required for JDG trade names; fallback for never-VAT-registered NIPs
 LOG_LEVEL=info                    # debug | info | warn | error
 REQUEST_TIMEOUT_MS=20000          # HTTP request timeout
 MAX_LOG_LINES=200                 # Unused in current impl
@@ -142,7 +142,7 @@ Config validation with Zod — exits process with clear error messages if requir
 | `get_all_clients` | List clients (default limit: 100) |
 | `get_client_by_nip` | Find single client by NIP (exact match) |
 | `get_client_by_name` | Search clients by name (partial, case-insensitive) |
-| `lookup_company_by_nip` | Registry lookup (VAT whitelist + CEIDG fallback); returns suggested_create_payload |
+| `lookup_company_by_nip` | Registry lookup (VAT whitelist; CEIDG for JDG trade names) |
 | `create_client` | Create client in Fakturownia |
 | `update_client` | Update client fields |
 | `delete_client` | Delete client (requires confirm=true) |
@@ -292,7 +292,7 @@ The tool layer translates between user-friendly names and API field names.
 
 ## VAT Whitelist (primary NIP lookup)
 
-`lookup_company_by_nip` looks up the MF VAT whitelist first, then CEIDG. The agent calls `create_client` separately with `suggested_create_payload`.
+`lookup_company_by_nip` looks up the MF VAT whitelist first. For **JDGs** (`krs` null), also calls CEIDG for the trade name (requires `CEIDG_API_TOKEN`). For **companies** (`krs` set), whitelist name is used as-is. Empty-shell NIPs fall back to CEIDG only. The agent calls `create_client` with `suggested_create_payload`.
 
 ```
 GET https://wl-api.mf.gov.pl/api/search/nip/{nip}?date=YYYY-MM-DD
@@ -302,7 +302,8 @@ No API key. `date` is required (today). Covers JDG **and** KRS entities. Returns
 
 **Empty shell vs removed payer — do not mix these up:**
 
-- `subject == null` or `subject.name == null` → never VAT-registered → fall back to CEIDG
+- `subject == null` or `subject.name == null` → never VAT-registered → CEIDG-only fallback
+- `krs == null` (JDG) with a whitelist hit → also call CEIDG for trade name; whitelist personal name is not used when CEIDG has a name
 - `statusVat === "Niezarejestrowany"` **with a name** → was registered, later removed → **usable whitelist hit**, not a miss
 
 Address is a single string in `workingAddress ?? residenceAddress`. Parse `street, XX-XXX city` via `parsePolishAddress`; unparsed leftovers stay in `street` for manual review.
@@ -313,7 +314,7 @@ VAT status, removal/denial reasons, and account numbers go into the Fakturownia 
 
 ## CEIDG Integration (fallback for never-VAT-registered NIPs)
 
-CEIDG is the **fallback** when the VAT whitelist returns an empty shell. It still only covers sole proprietorships (JDG).
+CEIDG is used for **JDG trade names** (when whitelist hits) and as **fallback** when the VAT whitelist returns an empty shell. It only covers sole proprietorships (JDG).
 
 > **FUTURE**: For entities that have never had VAT obligations (some foundations/holdings), GUS BIR1 (REGON) would cover more than CEIDG. Out of scope until it matters. See: https://api.stat.gov.pl/Home/RegonApi
 
@@ -602,7 +603,7 @@ z.string().nullish().transform((val) => val || undefined)
    - `getCompanyByNip()` — fetch, parse v3 response structure, build address string
    - Handle: no token configured (clear error message), 401/403, 404, network errors
 2. Add `handleLookupCompanyByNip` to clients.ts:
-   - Validate NIP → fetch from VAT whitelist → CEIDG fallback → return `suggested_create_payload` (no Fakturownia write)
+   - Validate NIP → fetch VAT whitelist → for JDGs enrich name from CEIDG → return `suggested_create_payload` (no Fakturownia write)
    - Agent calls `create_client` separately after reviewing warnings
 
 **CEIDG v3 response mapping**:

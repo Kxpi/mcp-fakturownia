@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   buildVatImportNote,
+  isJdg,
   mapVatSubject,
   type VatSubject,
 } from '../../src/api/vatWhitelistClient.js';
@@ -8,6 +9,7 @@ import {
 const removedPayer: VatSubject = {
   name: 'MAKSYMILIAN PŁYWACZYK',
   nip: '6070097574',
+  krs: null,
   statusVat: 'Niezarejestrowany',
   residenceAddress: 'POWSTAŃCÓW WIELKOPOLSKICH 22, 64-800 CHODZIEŻ',
   workingAddress: null,
@@ -19,6 +21,7 @@ const removedPayer: VatSubject = {
 const activePayer: VatSubject = {
   name: 'KACPER WIŚNIEWSKI',
   nip: '6070095262',
+  krs: null,
   statusVat: 'Czynny',
   residenceAddress: 'SŁONECZNA 7, 64-800 CHODZIEŻ',
   workingAddress: null,
@@ -28,6 +31,7 @@ const activePayer: VatSubject = {
 const neverRegistered: VatSubject = {
   name: null,
   nip: 'XXXXXXXXXX',
+  krs: null,
   statusVat: 'Niezarejestrowany',
   residenceAddress: null,
   workingAddress: null,
@@ -39,6 +43,7 @@ describe('mapVatSubject', () => {
     const company = mapVatSubject(removedPayer);
     expect(company).not.toBeNull();
     expect(company!.name).toBe('MAKSYMILIAN PŁYWACZYK');
+    expect(company!.krs).toBeNull();
     expect(company!.statusVat).toBe('Niezarejestrowany');
     expect(company!.street).toBe('POWSTAŃCÓW WIELKOPOLSKICH 22');
     expect(company!.postCode).toBe('64-800');
@@ -64,12 +69,32 @@ describe('mapVatSubject', () => {
     const company = mapVatSubject({
       name: 'FOO SP. Z O.O.',
       nip: '1234563218',
+      krs: '0000123456',
       statusVat: 'Czynny',
       workingAddress: 'MARSZAŁKOWSKA 1, 00-001 WARSZAWA',
       residenceAddress: 'SŁONECZNA 7, 64-800 CHODZIEŻ',
     });
     expect(company!.city).toBe('WARSZAWA');
     expect(company!.street).toBe('MARSZAŁKOWSKA 1');
+    expect(company!.krs).toBe('0000123456');
+  });
+});
+
+describe('isJdg', () => {
+  it('returns true when krs is null', () => {
+    expect(isJdg(mapVatSubject(activePayer)!)).toBe(true);
+  });
+
+  it('returns false when krs is set', () => {
+    const company = mapVatSubject({
+      name: 'FOO SP. Z O.O.',
+      nip: '1234563218',
+      krs: '0000123456',
+      statusVat: 'Czynny',
+      residenceAddress: null,
+      workingAddress: 'MARSZAŁKOWSKA 1, 00-001 WARSZAWA',
+    });
+    expect(isJdg(company!)).toBe(false);
   });
 });
 

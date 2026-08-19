@@ -2,6 +2,7 @@ import type { CeidgCompany } from '../api/ceidgClient.js';
 import { buildVatImportNote, type VatCompany } from '../api/vatWhitelistClient.js';
 
 export type CompanyLookupSource = 'vat_whitelist' | 'ceidg';
+export type JdgNameSource = 'ceidg' | 'vat_whitelist';
 
 export interface SuggestedCreatePayload {
   name: string;
@@ -14,20 +15,38 @@ export interface SuggestedCreatePayload {
   notes: string;
 }
 
+export function resolveJdgDisplayName(
+  vatName: string,
+  ceidgName: string | null | undefined,
+): { name: string; nameSource: JdgNameSource } {
+  const trimmed = ceidgName?.trim();
+  if (trimmed) {
+    return { name: trimmed, nameSource: 'ceidg' };
+  }
+  return { name: vatName, nameSource: 'vat_whitelist' };
+}
+
 export function buildVatSuggestedCreatePayload(
   company: VatCompany,
   nip: string,
   today: string,
+  displayName?: string,
 ): SuggestedCreatePayload {
+  const name = displayName ?? company.name;
+  let notes = buildVatImportNote(company, today);
+  if (displayName && displayName !== company.name) {
+    notes += ` Whitelist personal name: ${company.name}.`;
+  }
+
   return {
-    name: company.name,
+    name,
     nip,
     street: company.street || undefined,
     city: company.city || undefined,
     zip: company.postCode || undefined,
     country: 'PL',
     bank_account: company.accountNumbers[0],
-    notes: buildVatImportNote(company, today),
+    notes,
   };
 }
 

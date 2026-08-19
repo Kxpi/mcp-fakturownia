@@ -3,6 +3,7 @@ import {
   buildCeidgSuggestedCreatePayload,
   buildVatSuggestedCreatePayload,
   ceidgLookupWarnings,
+  resolveJdgDisplayName,
   vatLookupWarnings,
 } from '../../src/utils/companyLookup.js';
 import type { VatCompany } from '../../src/api/vatWhitelistClient.js';
@@ -11,6 +12,7 @@ import type { CeidgCompany } from '../../src/api/ceidgClient.js';
 const activeVat: VatCompany = {
   name: 'KACPER WIŚNIEWSKI',
   nip: '6070095262',
+  krs: null,
   street: 'SŁONECZNA 7',
   city: 'CHODZIEŻ',
   postCode: '64-800',
@@ -18,6 +20,27 @@ const activeVat: VatCompany = {
   statusVat: 'Czynny',
   accountNumbers: ['77109013170000000156952242'],
 };
+
+describe('resolveJdgDisplayName', () => {
+  it('prefers CEIDG trade name over whitelist personal name', () => {
+    const result = resolveJdgDisplayName(
+      'KACPER WIŚNIEWSKI',
+      'A7 SOLUTIONS KACPER WIŚNIEWSKI',
+    );
+    expect(result).toEqual({
+      name: 'A7 SOLUTIONS KACPER WIŚNIEWSKI',
+      nameSource: 'ceidg',
+    });
+  });
+
+  it('falls back to whitelist personal name when CEIDG name is absent', () => {
+    const result = resolveJdgDisplayName('KACPER WIŚNIEWSKI', null);
+    expect(result).toEqual({
+      name: 'KACPER WIŚNIEWSKI',
+      nameSource: 'vat_whitelist',
+    });
+  });
+});
 
 describe('buildVatSuggestedCreatePayload', () => {
   it('uses create_client field names, not Fakturownia API names', () => {
@@ -35,6 +58,18 @@ describe('buildVatSuggestedCreatePayload', () => {
     expect(payload).not.toHaveProperty('tax_no');
     expect(payload).not.toHaveProperty('post_code');
     expect(payload).not.toHaveProperty('note');
+  });
+
+  it('uses displayName override and records whitelist personal name in notes', () => {
+    const payload = buildVatSuggestedCreatePayload(
+      activeVat,
+      '6070095262',
+      '2026-08-19',
+      'A7 SOLUTIONS KACPER WIŚNIEWSKI',
+    );
+    expect(payload.name).toBe('A7 SOLUTIONS KACPER WIŚNIEWSKI');
+    expect(payload.notes).toContain('Whitelist personal name: KACPER WIŚNIEWSKI');
+    expect(payload.bank_account).toBe('77109013170000000156952242');
   });
 });
 

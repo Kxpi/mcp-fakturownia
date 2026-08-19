@@ -1,12 +1,15 @@
 import type { FakturowniaApiClient } from '../api/fakturowniaClient.js';
 import type { CeidgClient } from '../api/ceidgClient.js';
-import type { VatWhitelistClient } from '../api/vatWhitelistClient.js';
+import { isJdg, type VatWhitelistClient } from '../api/vatWhitelistClient.js';
+import { config } from '../config.js';
+import { FakturowniaError } from '../utils/errors.js';
 import { cleanNIP } from '../utils/nip.js';
 import { getToday } from '../utils/dates.js';
 import {
   buildCeidgSuggestedCreatePayload,
   buildVatSuggestedCreatePayload,
   ceidgLookupWarnings,
+  resolveJdgDisplayName,
   vatLookupWarnings,
 } from '../utils/companyLookup.js';
 import { filterClientList, filterClientDetail } from '../utils/responseFilter.js';
@@ -44,7 +47,7 @@ export const getClientByNameToolDef = defineTool(
 
 export const lookupCompanyByNipToolDef = defineTool(
   'lookup_company_by_nip',
-  'Look up company data by NIP from Polish registries (read-only, does NOT create a Fakturownia client). Primary source: MF VAT whitelist (JDG and KRS — name, address, VAT status, verified bank accounts). Falls back to CEIDG only when the whitelist returns an empty shell (subject.name is null = never VAT-registered). CRITICAL: statusVat "Niezarejestrowany" with a name is still a valid hit (removed payer), not a miss. Returns source, warnings, registry data, and suggested_create_payload ready for create_client. Workflow: get_client_by_nip first → if missing, lookup_company_by_nip → review warnings → create_client with suggested_create_payload.',
+  'Look up company data by NIP from Polish registries (read-only, does NOT create a Fakturownia client). Companies (KRS): MF VAT whitelist only. JDGs (krs null): whitelist for VAT status, address, bank accounts + CEIDG for trade name (requires CEIDG_API_TOKEN). Never-VAT-registered NIPs: CEIDG-only fallback when whitelist empty shell (subject.name is null). CRITICAL: statusVat "Niezarejestrowany" with a name is still a valid hit (removed payer), not a miss. Returns source, warnings, registry data, and suggested_create_payload for create_client.',
   lookupCompanyByNipInputSchema,
 );
 
@@ -118,6 +121,51 @@ export async function handleLookupCompanyByNip(
   const vatCompany = await vatClient.getCompanyByNip(input.nip);
 
   if (vatCompany) {
+    if (isJdg(vatCompany)) {
+      if (!config.ceidgApiToken) {
+        throw new FakturowniaError(
+          'CEIDG_API_TOKEN is required to resolve JDG trade names. The VAT whitelist only returns personal names for sole proprietorships (krs is null).',
+        );
+      }
+
+      const ceidg = await ceidgClient.tryGetCompanyByNip(input.nip);
+      const { name, nameSource } = resolveJdgDisplayName(vatCompany.name, ceidg?.name);
+      const warnings = vatLookupWarnings(vatCompany);
+      if (ceidg) {
+        warnings.push(...ceidgLookupWarnings(ceidg));
+      }
+      if (nameSource === 'vat_whitelist') {
+        warnings.push(
+          ceidg
+            ? 'CEIDG returned no trade name — using VAT whitelist personal name.'
+            : 'CEIDG returned no data — using VAT whitelist personal name.',
+        );
+      }
+
+      return {
+        source: 'vat_whitelist' as const,
+        data: {
+          name,
+          vat_whitelist_name: vatCompany.name,
+          name_source: nameSource,
+          nip: input.nip,
+          status_vat: vatCompany.statusVat,
+          account_numbers: vatCompany.accountNumbers,
+          removal_basis: vatCompany.removalBasis,
+          removal_date: vatCompany.removalDate,
+          ...(ceidg ? { ceidg_status: ceidg.status } : {}),
+        },
+        warnings,
+        suggested_create_payload: buildVatSuggestedCreatePayload(
+          vatCompany,
+          input.nip,
+          today,
+          name,
+        ),
+        message: `Found "${name}" on VAT whitelist (JDG, VAT status: ${vatCompany.statusVat})`,
+      };
+    }
+
     const warnings = vatLookupWarnings(vatCompany);
     return {
       source: 'vat_whitelist' as const,
